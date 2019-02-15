@@ -94,8 +94,7 @@
 //       }
 //   }
 //
-// You can mock net.Listen, net.Dial and net.DialTimeout using this package as shown above
-//
+// You can mock net.Listen, net.Dial and net.DialTimeout using this package as shown above.
 // Now you can various network failures as shown above using fnet.Firewall fnet.Bandwidth
 //
 // Firewalls
