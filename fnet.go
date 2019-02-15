@@ -50,9 +50,16 @@ func (n *Network) Host(name string) *Host {
 		return host
 	}
 	host := &Host{
-		net:  n,
-		Name: name,
-		lrs:  make(map[int]*listener),
+		net:    n,
+		Name:   name,
+		lrs:    make(map[int]*listener),
+		limits: make(map[string][2]*bucket),
+	}
+	for _, h := range n.hosts {
+		host.limits[h.Name] = [2]*bucket{nil, nil}
+		h.mu.Lock()
+		h.limits[host.Name] = [2]*bucket{nil, nil}
+		h.mu.Unlock()
 	}
 	n.hosts[name] = host
 	return host
@@ -70,6 +77,33 @@ func (n *Network) SetFirewall(firewall Firewall) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.firewall = firewall
+}
+
+// SetBandwidth enforces given bandwidth between the given two hosts
+func (n *Network) SetBandwidth(host1, host2 string, bw Bandwidth) {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	h1, h2 := n.hosts[host1], n.hosts[host2]
+	if h1 == nil || h2 == nil {
+		return
+	}
+
+	h1.mu.Lock()
+	h1.limits[h2.Name] = [2]*bucket{newBucket(bw), newBucket(bw)}
+	h1.mu.Unlock()
+
+	h2.mu.Lock()
+	h2.limits[h1.Name] = [2]*bucket{newBucket(bw), newBucket(bw)}
+	h2.mu.Unlock()
+}
+
+func (n *Network) getLimits(local, remote string) [2]*bucket {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	h := n.hosts[local]
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.limits[remote]
 }
 
 func (n *Network) hostname(port int) string {
@@ -97,8 +131,9 @@ type Host struct {
 	net  *Network
 	Name string
 
-	mu  sync.RWMutex
-	lrs map[int]*listener
+	mu     sync.RWMutex
+	lrs    map[int]*listener
+	limits map[string][2]*bucket
 }
 
 // Listen implements net.Listen for "fnet" network
@@ -256,32 +291,133 @@ type conn struct {
 	remote  addr
 	netConn net.Conn
 	dialed  bool
+
+	mu     sync.RWMutex
+	rd, wd time.Time
 }
 
 func (c *conn) Read(b []byte) (n int, err error) {
 	if !c.net.Firewall().Allow(c.local.host, c.remote.host) {
 		return 0, errors.New("Conn.Read: broken pipe")
 	}
-	return c.netConn.Read(b)
+
+	if c.local.host == c.remote.host {
+		return c.netConn.Read(b)
+	}
+
+	c.mu.Lock()
+	rd := c.rd
+	c.mu.Unlock()
+
+	rlimit := c.net.getLimits(c.local.host, c.remote.host)[0]
+	if rlimit == nil {
+		err = c.netConn.SetReadDeadline(rd)
+		if err != nil {
+			return 0, err
+		}
+		return c.netConn.Read(b)
+	}
+
+	for {
+		d, max, deadline := rlimit.request(false, int64(len(b)), rd)
+		time.Sleep(d)
+		if max <= 0 {
+			return 0, timeoutError{}
+		}
+		err = c.netConn.SetReadDeadline(deadline)
+		if err != nil {
+			return 0, err
+		}
+		n, err = c.netConn.Read(b[:int(max)])
+		rlimit.taken(int64(n))
+
+		if err, ok := err.(net.Error); ok && err.Timeout() && (rd.IsZero() || time.Now().Before(rd)) {
+			if n == 0 {
+				continue
+			}
+			err = nil
+		}
+		time.Sleep(deadline.Sub(time.Now()))
+		return n, err
+	}
 }
 
 func (c *conn) Write(b []byte) (n int, err error) {
 	if !c.net.Firewall().Allow(c.local.host, c.remote.host) {
 		return 0, errors.New("Conn.Read: broken pipe")
 	}
-	return c.netConn.Write(b)
+
+	if c.local.host == c.remote.host {
+		return c.netConn.Write(b)
+	}
+
+	c.mu.Lock()
+	wd := c.wd
+	c.mu.Unlock()
+
+	wlimit := c.net.getLimits(c.local.host, c.remote.host)[1]
+	if wlimit == nil {
+		err = c.netConn.SetWriteDeadline(wd)
+		if err != nil {
+			return 0, err
+		}
+		return c.netConn.Write(b)
+	}
+
+	for {
+		d, max, deadline := wlimit.request(true, int64(len(b)-n), wd)
+		time.Sleep(d)
+		if max <= 0 {
+			return 0, timeoutError{}
+		}
+		err = c.netConn.SetWriteDeadline(deadline)
+		if err != nil {
+			return 0, err
+		}
+		wrote, err := c.netConn.Write(b[n : n+int(max)])
+		n += wrote
+
+		if err != nil {
+			if err, ok := err.(net.Error); ok && err.Timeout() && (wd.IsZero() || time.Now().Before(wd)) {
+				continue
+			}
+			return n, err
+		}
+		if n == len(b) {
+			time.Sleep(deadline.Sub(time.Now()))
+			return n, nil
+		}
+	}
 }
 
 func (c *conn) SetDeadline(t time.Time) error {
-	return c.netConn.SetDeadline(t)
+	if c.local.host == c.remote.host {
+		return c.netConn.SetDeadline(t)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.rd, c.wd = t, t
+	return nil
 }
 
 func (c *conn) SetReadDeadline(t time.Time) error {
-	return c.netConn.SetReadDeadline(t)
+	if c.local.host == c.remote.host {
+		return c.netConn.SetReadDeadline(t)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.rd = t
+	return nil
 }
 
 func (c *conn) SetWriteDeadline(t time.Time) error {
-	return c.netConn.SetWriteDeadline(t)
+	if c.local.host == c.remote.host {
+		return c.netConn.SetWriteDeadline(t)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.wd = t
+	return nil
 }
 
 func (c *conn) LocalAddr() net.Addr {
@@ -326,4 +462,18 @@ func (a addr) Host() string {
 }
 func (a addr) Port() int {
 	return a.port
+}
+
+type timeoutError struct{}
+
+func (timeoutError) Error() string {
+	return "deadline reached"
+}
+
+func (timeoutError) Timeout() bool {
+	return true
+}
+
+func (timeoutError) Temporary() bool {
+	return true
 }

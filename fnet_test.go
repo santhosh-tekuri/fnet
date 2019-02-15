@@ -15,7 +15,10 @@
 package fnet_test
 
 import (
+	"bytes"
+	"crypto/rand"
 	"fmt"
+	"io"
 	"net"
 	"strings"
 	"sync"
@@ -91,33 +94,55 @@ func TestCommunication(t *testing.T) {
 
 }
 
-func xxxTestPorts(t *testing.T) {
-	var mu sync.RWMutex
-	host := ""
+func TestHostBandwidth(t *testing.T) {
+	nw := fnet.New()
+	earth, mars := nw.Host("earth"), nw.Host("mars")
 
-	lr, err := net.Listen("tcp", "localhost:8888")
+	lnr := listen(t, earth, 80)
+	dconn, aconn, err := dial(lnr, mars)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	nw.SetBandwidth("earth", "mars", fnet.Bandwidth(1024))
+
+	ch := make(chan time.Duration)
+	wb, rb := make([]byte, 5*1024), make([]byte, 5*1024)
+	rand.Read(wb)
 	go func() {
-		conn, err := lr.Accept()
-		if err != nil {
+		now := time.Now()
+		n, err := io.ReadFull(aconn, rb)
+		rb = rb[0:n]
+		if err != nil && err != io.ErrUnexpectedEOF {
 			t.Fatal(err)
 		}
-		mu.RLock()
-		h := host
-		mu.RUnlock()
-		fmt.Println("host", h)
-		fmt.Println("accepted", conn.LocalAddr(), conn.RemoteAddr())
+		ch <- time.Now().Sub(now)
 	}()
-	conn, err := net.Dial("tcp", "localhost:8888")
+	now := time.Now()
+	n, err := dconn.Write(wb)
+	writeTook := time.Now().Sub(now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	mu.Lock()
-	host = "mars"
-	mu.Unlock()
-	fmt.Println("dialed", conn.LocalAddr(), conn.RemoteAddr())
+	if n != len(wb) {
+		t.Fatalf("got %d, want %d", n, len(wb))
+	}
+	dconn.Close()
+	readTook := <-ch
+
+	if !bytes.Equal(wb, rb) {
+		t.Fatal("bytes mismatch")
+	}
+	n, err = aconn.Read(wb)
+	if n != 0 || err != io.EOF {
+		t.Fatalf("got: %d %s, want 0 EOF", n, err)
+	}
+	if writeTook.Seconds() < 3.5 || writeTook.Seconds() > 5.5 {
+		t.Fatalf("writeTook unexpected: %s", writeTook)
+	}
+	if readTook.Seconds() < 3.5 || readTook.Seconds() > 5.5 {
+		t.Fatalf("readTook unexpected: %s", readTook)
+	}
 }
 
 // -------------------------------------------------------
