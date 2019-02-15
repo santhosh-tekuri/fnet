@@ -12,13 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package fnet provides a way to mimic network of hosts on top of loopback
-// interface, featuring programmable firewalls to test various network failures in
-// unit testing
+// Package fnet provides programmable firewall, bandwidth to test
+// network failures in unit testing.
 //
-// This package is intended for use in unit-testing network related scenarios.
+// This package (fnet stands for fakenet) is intended for use in unit-testing network related failures.
 // Your library does not need any dependency on this package for this. only your
 // tests need this package as dependency.
+//
+// This package simply wraps net.Listen, net.Dial, net.Conn implementation on
+// tcp:localhost. It enforces firewall/bandwidth before delegating to actual
+// implementation
 //
 // Some minimal changes needs to be done in your library for this. Consider following
 // simple library code, to demonstrate the changes:
@@ -79,14 +82,14 @@
 //       c := &Client{Servers: []{"earth:80", "mars:80"}, transport: venus} // client is running on venus
 //
 //       // make s1 unreachable to client
-//       nw.SetFirewall(fnet.Isolate("earth"))
-//       if reply, err := c.sendReq("hello"); err!=nil {
+//       nw.SetFirewall(fnet.Split([]string{"earth"}, fnet.AllowAll))
+//       if reply, err := c.SendReq("hello"); err!=nil {
 //           t.Fatal("expected to connect s2")
 //       }
 //
 //       // now make s2 unreachable to client, but not s1
-//       nw.SetFirewall(fnet.Isolate("mars"))
-//       if reply, err := c.sendReq("hello"); err!=nil {
+//       nw.SetFirewall(fnet.Split([]string{"mars"}, fnet.AllowAll))
+//       if reply, err := c.SendReq("hello"); err!=nil {
 //           t.Fatal("expected to connect s1")
 //       }
 //   }
@@ -116,36 +119,28 @@
 // This implements network partioning. Mutiple partitions
 // can be defined by chaining. See example below:
 //
-//  // Consider network with hosts m1, m2, m3, m4, m5 and m6
+//      // Consider network with hosts m1, m2, m3, m4, m5 and m6
 //
-//  // 2 partitions: m1 m2 | m3 m4 m5 m6
-//  Split{
-//      Hosts: []string{"m1", "m2"},
-//      Next: AllowAll,
-//  }
+//      // 2 partitions: m1 m2 | m3 m4 m5 m6
+//      firewall := fnet.Split([]string{"m1", "m2"}, fnet.AllowAll)
 //
-//  // 3 partitions: m1 m2 | m3 m4 | m5 m6
-//  Split{
-//      Hosts: []string{"m1", "m2"},
-//      Next: Split {
-//          Hosts: []string{"m3", "m4"},
-//          Next: AllowAll,
-//      },
-//  }
-//
-// Isolate method provide handy way of creating Split without nesting:
-//
-//  // below two are same
-//
-//  Isolate("m1", "m2")
-//
-//  Split{
-//      Hosts: []string{"m1", "m2"},
-//      Next: AllowAll,
-//  }
+//      // 3 partitions: m1 m2 | m3 m4 | m5 m6
+//      firewall := fnet.Split([]string{"m1", "m2"}, fnet.AllowAll)
+//      firewall = fnet.Split([]string{"m3", "m4"}, firewall) // chaining
 //
 // You can create your own firewall implementation if needed. It is simple single method interface:
 //   type Firewall interface {
 //       Allow(host1, host2 string) bool
 //   }
+//
+// Bandwidth
+//
+// to set bandwidth between two hosts:
+//    nw := fnet.New()
+//    earth, mars := nw.Host("earth"), nw.Host("mars")
+//    nw.SetBandwidth("earth", "mars", fnet.Bandwidth(10*1024*1024)) // 10MB per second between earth and mars
+//
+//    // to revert
+//    nw.SetBandwidth("earth", "mars", fnet.NoLimit)
+//
 package fnet

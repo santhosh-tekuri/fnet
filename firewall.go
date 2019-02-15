@@ -40,53 +40,36 @@ const (
 	AllowSelf all = false
 )
 
-// Isolate partitions the hosts in network into two groups:
-// one containing the given hosts, another containing rest of the hosts.
-// hosts in a group can communicate with each other, but they cannot
-// communicate with hosts in other group.
-//
-//  // Consider network with hosts m1, m2, m3, m4 and m5
-//
-//  // 2 partitions: m1 m2 | m3 m4 m5
-//  Isolate("m1", "m2")
-func Isolate(hosts ...string) Split {
-	return Split{
-		Hosts: hosts,
-		Next:  AllowAll,
-	}
-}
-
 // Split firewall implements network partioning. Mutiple partitions
 // can be defined by chaining. See example below:
 //
 //  // Consider network with hosts m1, m2, m3, m4, m5 and m6
 //
 //  // 2 partitions: m1 m2 | m3 m4 m5 m6
-//  Split{
-//      Hosts: []string{"m1", "m2"},
-//      Next: AllowAll,
-//  }
+//  firewall := fnet.Split([]string{"m1", "m2"}, fnet.AllowAll)
 //
 //  // 3 partitions: m1 m2 | m3 m4 | m5 m6
-//  Split{
-//      Hosts: []string{"m1", "m2"},
-//      Next: Split {
-//          Hosts: []string{"m3", "m4"},
-//          Next: AllowAll,
-//      },
-//  }
-type Split struct {
+//  firewall := fnet.Split([]string{"m1", "m2"}, fnet.AllowAll)
+//  firewall = fnet.Split([]string{"m3", "m4"}, firewall) // chaining
+func Split(hosts []string, next Firewall) Firewall {
+	return split{
+		hosts: hosts,
+		next:  AllowAll,
+	}
+}
+
+type split struct {
 	// Hosts is list of hosts in partition
-	Hosts []string
+	hosts []string
 
 	// Next firewall is used when given two hosts
 	// are not in the above partition
-	Next Firewall
+	next Firewall
 }
 
 // Allow implements Firewall.Allow
-func (s Split) Allow(host1, host2 string) bool {
-	b1, b2 := contains(s.Hosts, host1), contains(s.Hosts, host2)
+func (s split) Allow(host1, host2 string) bool {
+	b1, b2 := contains(s.hosts, host1), contains(s.hosts, host2)
 	switch {
 	case b1 && b2:
 		return true

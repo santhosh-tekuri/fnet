@@ -20,10 +20,12 @@ import (
 	"time"
 )
 
-// NoLimit bandwidth represents no limits enforced
+// NoLimit bandwidth represents no limits enforced.
+//
+// This is the default bandwidth set on newly created network.
 var NoLimit = Bandwidth(math.MaxFloat64)
 
-// Bandwidth represents network traffic in number of bytes per second
+// Bandwidth represents network traffic in number of bytes per second.
 type Bandwidth float64
 
 func (b Bandwidth) durationFor(n int64) time.Duration {

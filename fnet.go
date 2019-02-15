@@ -23,7 +23,7 @@ import (
 	"time"
 )
 
-// New creates an empty network with AllowAll firewall
+// New creates an empty network with AllowAll firewall and NoLimit bandwidth.
 func New() *Network {
 	return &Network{
 		hosts:    make(map[string]*Host),
@@ -32,7 +32,7 @@ func New() *Network {
 	}
 }
 
-// Network represents list of hosts on "fnet" network
+// Network represents list of hosts on "fnet" network.
 type Network struct {
 	mu       sync.RWMutex
 	hosts    map[string]*Host
@@ -65,21 +65,21 @@ func (n *Network) Host(name string) *Host {
 	return host
 }
 
-// Firewall returns current firewall
+// Firewall returns current firewall.
 func (n *Network) Firewall() Firewall {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 	return n.firewall
 }
 
-// SetFirewall changes the current firewall
+// SetFirewall changes the current firewall.
 func (n *Network) SetFirewall(firewall Firewall) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.firewall = firewall
 }
 
-// SetBandwidth enforces given bandwidth between the given two hosts
+// SetBandwidth enforces given bandwidth between the given two hosts.
 func (n *Network) SetBandwidth(host1, host2 string, bw Bandwidth) {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
@@ -136,7 +136,7 @@ type Host struct {
 	limits map[string][2]*bucket
 }
 
-// Listen implements net.Listen for "fnet" network
+// Listen implements net.Listen for "fnet" network.
 func (h *Host) Listen(address string) (net.Listener, error) {
 	host, sport, err := net.SplitHostPort(address)
 	if err != nil {
@@ -179,12 +179,12 @@ func (h *Host) Listen(address string) (net.Listener, error) {
 	return lr, nil
 }
 
-// Dial implements net.Dial for "fnet" network
+// Dial implements net.Dial for "fnet" network.
 func (h *Host) Dial(address string) (net.Conn, error) {
 	return h.DialTimeout(address, 0)
 }
 
-// DialTimeout implements net.DialTimeout for "fnet" network
+// DialTimeout implements net.DialTimeout for "fnet" network.
 func (h *Host) DialTimeout(address string, timeout time.Duration) (net.Conn, error) {
 	rhost, sport, err := net.SplitHostPort(address)
 	if err != nil {
