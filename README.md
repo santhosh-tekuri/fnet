@@ -1,3 +1,7 @@
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) 
+[![GoDoc](https://godoc.org/github.com/santhosh-tekuri/fnet?status.svg)](https://godoc.org/github.com/santhosh-tekuri/fnet)
+[![Go Report Card](https://goreportcard.com/badge/github.com/santhosh-tekuri/fnet)](https://goreportcard.com/report/github.com/santhosh-tekuri/fnet) 
+
 Package fnet provides programmable firewall, bandwidth to test
 network failures in unit testing.
 
@@ -27,7 +31,7 @@ func (s *Server) launch() {
 }
 ~~~
 
-You have to mock net.Listen in your code. For this introduce transport interface as shown below:
+You have to mock `net.Listen` in your code. For this introduce transport interface as shown below:
 
 ~~~go
 package myapp
@@ -45,18 +49,18 @@ func (s *Server) launch() {
 }
 
 type transport interface {
-Listen(address string) (net.Listener, error)
-Dial(address string) (net.Conn, error)
+    Listen(address string) (net.Listener, error)
+    Dial(address string) (net.Conn, error)
 }
 
 type tcpTransport struct{}
 
 func (t tcpTransport) Listen(address string) (net.Listener, error) {
-return net.Listen("tcp", address)
+    return net.Listen("tcp", address)
 }
 
 func (t tcpTransport) Dial(address string, timeout time.Duration) (net.Conn, error) {
-return net.Dial("tcp", address, timeout)
+    return net.Dial("tcp", address, timeout)
 }
 
 // unit test code ---------------------
