@@ -1,16 +1,16 @@
- Package fnet provides programmable firewall, bandwidth to test
- network failures in unit testing.
+Package fnet provides programmable firewall, bandwidth to test
+network failures in unit testing.
 
- This package (fnet stands for fakenet) is intended for use in unit-testing network related failures.
- Your library does not need any dependency on this package for this. only your
- tests need this package as dependency.
+This package (fnet stands for fakenet) is intended for use in unit-testing network related failures.
+Your library does not need any dependency on this package for this. only your
+tests need this package as dependency.
 
- This package simply wraps net.Listen, net.Dial, net.Conn implementation on
- tcp:localhost. It enforces firewall/bandwidth before delegating to actual
- implementation
+This package simply wraps net.Listen, net.Dial, net.Conn implementation on
+tcp:localhost. It enforces firewall/bandwidth before delegating to actual
+implementation
 
- Some minimal changes needs to be done in your library for this. Consider following
- simple library code, to demonstrate the changes:
+Some minimal changes needs to be done in your library for this. Consider following
+simple library code, to demonstrate the changes:
 
    package myapp
 
@@ -25,7 +25,7 @@
        ...
    }
 
- You have to mock net.Listen in your code. For this introduce transport interface as shown below:
+You have to mock net.Listen in your code. For this introduce transport interface as shown below:
 
    package myapp
 
@@ -80,30 +80,30 @@
        }
    }
 
- You can mock net.Listen, net.Dial and net.DialTimeout using this package as shown above
+You can mock net.Listen, net.Dial and net.DialTimeout using this package as shown above
 
- Now you can various network failures as shown above using fnet.Firewall
+Now you can various network failures as shown above using fnet.Firewall
 
- Firewalls
+Firewalls
 
- This package provides 3 implementations of firewall:
+This package provides 3 implementations of firewall:
 
- AllowAll:
+AllowAll:
 
- This does not block any network traffic.
- This is the default firewall set on newly created network.
+This does not block any network traffic.
+This is the default firewall set on newly created network.
 
- AllowSelf:
+AllowSelf:
 
- This blocks traffic between distinct hosts.
- Note that traffic within the host is allowed.
- Consider network with hosts m1, m2, m3 and m4,
- AllowSelf creates 4 network partitions: m1 | m2 | m3 | m4
+This blocks traffic between distinct hosts.
+Note that traffic within the host is allowed.
+Consider network with hosts m1, m2, m3 and m4,
+AllowSelf creates 4 network partitions: m1 | m2 | m3 | m4
 
- Split:
+Split:
 
- This implements network partioning. Mutiple partitions
- can be defined by chaining. See example below:
+This implements network partioning. Mutiple partitions
+can be defined by chaining. See example below:
 
       // Consider network with hosts m1, m2, m3, m4, m5 and m6
 
@@ -114,18 +114,17 @@
       firewall := fnet.Split([]string{"m1", "m2"}, fnet.AllowAll)
       firewall = fnet.Split([]string{"m3", "m4"}, firewall) // chaining
 
- You can create your own firewall implementation if needed. It is simple single method interface:
+You can create your own firewall implementation if needed. It is simple single method interface:
    type Firewall interface {
        Allow(host1, host2 string) bool
    }
 
  Bandwidth
 
- to set bandwidth between two hosts:
+to set bandwidth between two hosts:
     nw := fnet.New()
     earth, mars := nw.Host("earth"), nw.Host("mars")
     nw.SetBandwidth("earth", "mars", fnet.Bandwidth(10*1024*1024)) // 10MB per second between earth and mars
 
     // to revert
     nw.SetBandwidth("earth", "mars", fnet.NoLimit)
-
