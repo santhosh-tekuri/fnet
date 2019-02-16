@@ -19,6 +19,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"strings"
 	"sync"
@@ -160,10 +161,10 @@ func TestHostBandwidth(t *testing.T) {
 			wg.Add(2)
 			wd, rd := writeRead(t, wg, dconn, aconn, test.rounds*test.bw)
 			fmt.Println(wd, rd)
-			if wd.Seconds() < float64(test.rounds) || wd.Seconds() > float64(test.rounds)+0.2 {
+			if diff := math.Abs(wd.Seconds() - float64(test.rounds)); diff > 0.2 {
 				t.Fatalf("writeTook unexpected: %s", wd)
 			}
-			if rd.Seconds() < float64(test.rounds) || rd.Seconds() > float64(test.rounds)+0.2 {
+			if diff := math.Abs(rd.Seconds() - float64(test.rounds)); diff > 0.2 {
 				t.Fatalf("readTook unexpected: %s", rd)
 			}
 		})
