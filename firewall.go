@@ -76,7 +76,7 @@ func (s split) Allow(host1, host2 string) bool {
 	case b1 || b2:
 		return false
 	}
-	return s.Next.Allow(host1, host2)
+	return s.next.Allow(host1, host2)
 }
 
 func contains(hosts []string, host string) bool {

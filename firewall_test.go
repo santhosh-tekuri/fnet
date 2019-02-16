@@ -57,10 +57,7 @@ func TestFirewall_Split(t *testing.T) {
 	nw := fnet.New()
 	earth, mars, venus := nw.Host("earth"), nw.Host("mars"), nw.Host("venus")
 
-	nw.SetFirewall(fnet.Split{
-		Hosts: []string{"mars", "venus"},
-		Next:  fnet.AllowAll,
-	})
+	nw.SetFirewall(fnet.Split([]string{"mars", "venus"}, fnet.AllowAll))
 	elr, mlr, vlr := listen(t, earth, 80), listen(t, mars, 80), listen(t, venus, 80)
 	if _, _, err := dial(elr, earth); err != nil {
 		t.Fatal(err)
