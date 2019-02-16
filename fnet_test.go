@@ -99,49 +99,74 @@ func TestHostBandwidth(t *testing.T) {
 	earth, mars := nw.Host("earth"), nw.Host("mars")
 
 	lnr := listen(t, earth, 80)
-	dconn, aconn, err := dial(lnr, mars)
-	if err != nil {
-		t.Fatal(err)
-	}
 
-	nw.SetBandwidth("earth", "mars", fnet.Bandwidth(1024))
-
-	ch := make(chan time.Duration)
-	wb, rb := make([]byte, 5*1024), make([]byte, 5*1024)
-	rand.Read(wb)
-	go func() {
+	writeRead := func(t *testing.T, start *sync.WaitGroup, wconn, rconn net.Conn, n int64) (w, r time.Duration) {
+		ch := make(chan time.Duration)
+		wb, rb := make([]byte, n), make([]byte, n)
+		rand.Read(wb)
+		go func() {
+			start.Done()
+			start.Wait()
+			now := time.Now()
+			n, err := io.ReadFull(rconn, rb)
+			rb = rb[0:n]
+			if err != nil && err != io.ErrUnexpectedEOF {
+				t.Fatal(err)
+			}
+			ch <- time.Now().Sub(now)
+		}()
+		start.Done()
+		start.Wait()
 		now := time.Now()
-		n, err := io.ReadFull(aconn, rb)
-		rb = rb[0:n]
-		if err != nil && err != io.ErrUnexpectedEOF {
-			t.Fatal(err)
+		wn, err := wconn.Write(wb)
+		writeTook := time.Now().Sub(now)
+		if err != nil {
+			fmt.Println("ww", err)
+			t.Fatalf("write failed: %v", err)
 		}
-		ch <- time.Now().Sub(now)
-	}()
-	now := time.Now()
-	n, err := dconn.Write(wb)
-	writeTook := time.Now().Sub(now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != len(wb) {
-		t.Fatalf("got %d, want %d", n, len(wb))
-	}
-	dconn.Close()
-	readTook := <-ch
+		if wn != len(wb) {
+			t.Fatalf("got %d, want %d", wn, len(wb))
+		}
+		wconn.Close()
+		readTook := <-ch
 
-	if !bytes.Equal(wb, rb) {
-		t.Fatal("bytes mismatch")
+		if !bytes.Equal(wb, rb) {
+			t.Fatal("bytes mismatch")
+		}
+		rn, err := rconn.Read(wb)
+		if rn != 0 || err != io.EOF {
+			t.Fatalf("got: %d %s, want 0 EOF", rn, err)
+		}
+		rconn.Close()
+
+		return writeTook, readTook
 	}
-	n, err = aconn.Read(wb)
-	if n != 0 || err != io.EOF {
-		t.Fatalf("got: %d %s, want 0 EOF", n, err)
+
+	tests := []struct {
+		bw     int64
+		rounds int64
+	}{
+		{1024, 5},
+		{500, 5},
 	}
-	if writeTook.Seconds() < 3.5 || writeTook.Seconds() > 5.5 {
-		t.Fatalf("writeTook unexpected: %s", writeTook)
-	}
-	if readTook.Seconds() < 3.5 || readTook.Seconds() > 5.5 {
-		t.Fatalf("readTook unexpected: %s", readTook)
+	for _, test := range tests {
+		t.Run(fmt.Sprintf("singleConn(%d,%d)", test.bw, test.rounds), func(t *testing.T) {
+			dconn, aconn, err := dial(lnr, mars)
+			if err != nil {
+				t.Fatal(err)
+			}
+			nw.SetBandwidth("earth", "mars", fnet.Bandwidth(test.bw))
+			wg := new(sync.WaitGroup)
+			wg.Add(2)
+			wd, rd := writeRead(t, wg, dconn, aconn, test.rounds*test.bw)
+			fmt.Println(wd, rd)
+			if wd.Seconds() < float64(test.rounds) || wd.Seconds() > float64(test.rounds)+0.2 {
+				t.Fatalf("writeTook unexpected: %s", wd)
+			}
+			if rd.Seconds() < float64(test.rounds) || rd.Seconds() > float64(test.rounds)+0.2 {
+				t.Fatalf("readTook unexpected: %s", rd)
+			}
+		})
 	}
 }
 
