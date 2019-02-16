@@ -161,7 +161,7 @@ func (h *Host) Listen(address string) (net.Listener, error) {
 
 	netL, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
-		return nil, err
+		return nil, maskError(err, nil, addr{host, port})
 	}
 	_, sport, _ = net.SplitHostPort(netL.Addr().String())
 	netPort, _ := strconv.Atoi(sport)
@@ -215,7 +215,7 @@ func (h *Host) DialTimeout(address string, timeout time.Duration) (net.Conn, err
 
 	netConn, err := net.DialTimeout("tcp", lr.netL.Addr().String(), timeout)
 	if err != nil {
-		return nil, err
+		return nil, maskError(err, addr{h.Name, -1}, addr{rhost, rport})
 	}
 
 	_, sport, _ = net.SplitHostPort(netConn.LocalAddr().String())
@@ -242,7 +242,7 @@ type listener struct {
 func (l *listener) Accept() (net.Conn, error) {
 	netConn, err := l.netL.Accept()
 	if err != nil {
-		return nil, err
+		return nil, maskError(err, l.addr, nil)
 	}
 
 	var remote addr
@@ -302,7 +302,8 @@ func (c *conn) Read(b []byte) (n int, err error) {
 	}
 
 	if c.local.host == c.remote.host {
-		return c.netConn.Read(b)
+		n, err := c.netConn.Read(b)
+		return n, c.maskError(err, "read")
 	}
 
 	c.mu.Lock()
@@ -313,9 +314,10 @@ func (c *conn) Read(b []byte) (n int, err error) {
 	if rlimit == nil {
 		err = c.netConn.SetReadDeadline(rd)
 		if err != nil {
-			return 0, err
+			return 0, c.maskError(err, "read")
 		}
-		return c.netConn.Read(b)
+		n, err := c.netConn.Read(b)
+		return n, c.maskError(err, "read")
 	}
 
 	for {
@@ -326,7 +328,7 @@ func (c *conn) Read(b []byte) (n int, err error) {
 		}
 		err = c.netConn.SetReadDeadline(deadline)
 		if err != nil {
-			return 0, err
+			return 0, c.maskError(err, "read")
 		}
 		n, err = c.netConn.Read(b[:int(max)])
 		rlimit.taken(int64(n))
@@ -338,7 +340,7 @@ func (c *conn) Read(b []byte) (n int, err error) {
 			err = nil
 		}
 		time.Sleep(deadline.Sub(time.Now()))
-		return n, err
+		return n, c.maskError(err, "read")
 	}
 }
 
@@ -348,7 +350,8 @@ func (c *conn) Write(b []byte) (n int, err error) {
 	}
 
 	if c.local.host == c.remote.host {
-		return c.netConn.Write(b)
+		n, err := c.netConn.Write(b)
+		return n, c.maskError(err, "write")
 	}
 
 	c.mu.Lock()
@@ -359,9 +362,10 @@ func (c *conn) Write(b []byte) (n int, err error) {
 	if wlimit == nil {
 		err = c.netConn.SetWriteDeadline(wd)
 		if err != nil {
-			return 0, err
+			return 0, c.maskError(err, "write")
 		}
-		return c.netConn.Write(b)
+		n, err := c.netConn.Write(b)
+		return n, c.maskError(err, "write")
 	}
 
 	for {
@@ -381,7 +385,7 @@ func (c *conn) Write(b []byte) (n int, err error) {
 			if err, ok := err.(net.Error); ok && err.Timeout() && (wd.IsZero() || time.Now().Before(wd)) {
 				continue
 			}
-			return n, err
+			return n, c.maskError(err, "write")
 		}
 		if n == len(b) {
 			time.Sleep(deadline.Sub(time.Now()))
@@ -392,7 +396,7 @@ func (c *conn) Write(b []byte) (n int, err error) {
 
 func (c *conn) SetDeadline(t time.Time) error {
 	if c.local.host == c.remote.host {
-		return c.netConn.SetDeadline(t)
+		return c.maskError(c.netConn.SetDeadline(t), "set")
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -402,7 +406,7 @@ func (c *conn) SetDeadline(t time.Time) error {
 
 func (c *conn) SetReadDeadline(t time.Time) error {
 	if c.local.host == c.remote.host {
-		return c.netConn.SetReadDeadline(t)
+		return c.maskError(c.netConn.SetReadDeadline(t), "set")
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -412,7 +416,7 @@ func (c *conn) SetReadDeadline(t time.Time) error {
 
 func (c *conn) SetWriteDeadline(t time.Time) error {
 	if c.local.host == c.remote.host {
-		return c.netConn.SetWriteDeadline(t)
+		return c.maskError(c.netConn.SetWriteDeadline(t), "set")
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -439,10 +443,32 @@ func (c *conn) Close() error {
 	port, _ := strconv.Atoi(sport)
 	c.net.setPort(port, "")
 
-	return c.netConn.Close()
+	return c.maskError(c.netConn.Close(), "close")
+}
+
+func (c *conn) maskError(err error, op string) error {
+	err = maskError(err, c.local, c.remote)
+	if err, ok := err.(*net.OpError); ok {
+		err.Op = op
+	}
+	return err
 }
 
 // ---------------------------------------------
+
+// if *net.OpError change its Op, Source and Addr values
+// to correspond fnet specific
+func maskError(err error, local, remote net.Addr) error {
+	if err, ok := err.(*net.OpError); ok {
+		err.Net = "fnet"
+		if err.Source == nil {
+			err.Addr = local
+		} else {
+			err.Source, err.Addr = local, remote
+		}
+	}
+	return err
+}
 
 type addr struct {
 	host string
@@ -454,14 +480,10 @@ func (addr) Network() string {
 }
 
 func (a addr) String() string {
+	if a.port == -1 {
+		return a.host
+	}
 	return fmt.Sprintf("%s:%d", a.host, a.port)
-}
-
-func (a addr) Host() string {
-	return a.host
-}
-func (a addr) Port() int {
-	return a.port
 }
 
 type timeoutError struct{}
