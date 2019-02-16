@@ -160,7 +160,7 @@ func TestHostBandwidth(t *testing.T) {
 			wg := new(sync.WaitGroup)
 			wg.Add(2)
 			wd, rd := writeRead(t, wg, dconn, aconn, test.rounds*test.bw)
-			fmt.Println(wd, rd)
+			t.Logf("write: %v, read: %v", wd, rd)
 			if diff := math.Abs(wd.Seconds() - float64(test.rounds)); diff > 0.2 {
 				t.Fatalf("writeTook unexpected: %s", wd)
 			}
@@ -169,6 +169,24 @@ func TestHostBandwidth(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("resetBandwidth", func(t *testing.T) {
+		dconn, aconn, err := dial(lnr, mars)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nw.SetBandwidth("earth", "mars", fnet.NoLimit)
+		wg := new(sync.WaitGroup)
+		wg.Add(2)
+		wd, rd := writeRead(t, wg, dconn, aconn, 10*1024*1024)
+		t.Logf("write: %v, read: %v", wd, rd)
+		if wd.Seconds() > 5 {
+			t.Fatalf("writeTook unexpected: %s", wd)
+		}
+		if rd.Seconds() > 5 {
+			t.Fatalf("readTook unexpected: %s", rd)
+		}
+	})
 }
 
 // -------------------------------------------------------
