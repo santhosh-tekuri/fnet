@@ -40,7 +40,7 @@ func (c *conn) Read(b []byte) (n int, err error) {
 
 	if c.local.host == c.remote.host {
 		n, err := c.netConn.Read(b)
-		return n, c.maskError(err, "read")
+		return n, c.maskError("read", err)
 	}
 
 	rlimit := c.net.getLimits(c.local.host, c.remote.host)[0]
@@ -49,7 +49,7 @@ func (c *conn) Read(b []byte) (n int, err error) {
 		if err == nil {
 			n, err = c.netConn.Read(b)
 		}
-		return n, c.maskError(err, "read")
+		return n, c.maskError("read", err)
 	}
 
 	for {
@@ -74,7 +74,7 @@ func (c *conn) Read(b []byte) (n int, err error) {
 		if rd := c.readDeadline(); rd.IsZero() || deadline.Before(rd) { // user could have change rd, meanwhile
 			time.Sleep(deadline.Sub(time.Now()))
 		}
-		return n, c.maskError(err, "read")
+		return n, c.maskError("read", err)
 	}
 }
 
@@ -85,7 +85,7 @@ func (c *conn) Write(b []byte) (n int, err error) {
 
 	if c.local.host == c.remote.host {
 		n, err := c.netConn.Write(b)
-		return n, c.maskError(err, "write")
+		return n, c.maskError("write", err)
 	}
 
 	wlimit := c.net.getLimits(c.local.host, c.remote.host)[1]
@@ -94,7 +94,7 @@ func (c *conn) Write(b []byte) (n int, err error) {
 		if err == nil {
 			n, err = c.netConn.Write(b)
 		}
-		return n, c.maskError(err, "write")
+		return n, c.maskError("write", err)
 	}
 
 	wrote := 0
@@ -120,13 +120,13 @@ func (c *conn) Write(b []byte) (n int, err error) {
 		if wd := c.writeDeadline(); wd.IsZero() || deadline.Before(wd) { // user could have change wd, meanwhile
 			time.Sleep(deadline.Sub(time.Now()))
 		}
-		return n, c.maskError(err, "write")
+		return n, c.maskError("write", err)
 	}
 }
 
 func (c *conn) SetDeadline(t time.Time) error {
 	if c.local.host == c.remote.host {
-		return c.maskError(c.netConn.SetDeadline(t), "set")
+		return c.maskError("set", c.netConn.SetDeadline(t))
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -136,7 +136,7 @@ func (c *conn) SetDeadline(t time.Time) error {
 
 func (c *conn) SetReadDeadline(t time.Time) error {
 	if c.local.host == c.remote.host {
-		return c.maskError(c.netConn.SetReadDeadline(t), "set")
+		return c.maskError("set", c.netConn.SetReadDeadline(t))
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -146,7 +146,7 @@ func (c *conn) SetReadDeadline(t time.Time) error {
 
 func (c *conn) SetWriteDeadline(t time.Time) error {
 	if c.local.host == c.remote.host {
-		return c.maskError(c.netConn.SetWriteDeadline(t), "set")
+		return c.maskError("set", c.netConn.SetWriteDeadline(t))
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -185,11 +185,11 @@ func (c *conn) Close() error {
 	port, _ := strconv.Atoi(sport)
 	c.net.setPort(port, "")
 
-	return c.maskError(c.netConn.Close(), "close")
+	return c.maskError("close", c.netConn.Close())
 }
 
-func (c *conn) maskError(err error, op string) error {
-	err = maskError(err, c.local, c.remote)
+func (c *conn) maskError(op string, err error) error {
+	err = maskError(c.local, c.remote, err)
 	if err, ok := err.(*net.OpError); ok {
 		err.Op = op
 	}

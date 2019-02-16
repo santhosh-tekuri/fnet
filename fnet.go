@@ -160,7 +160,7 @@ func (h *Host) Listen(address string) (net.Listener, error) {
 
 	netL, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
-		return nil, maskError(err, nil, addr{host, port})
+		return nil, maskError(nil, addr{host, port}, err)
 	}
 	_, sport, _ = net.SplitHostPort(netL.Addr().String())
 	netPort, _ := strconv.Atoi(sport)
@@ -214,7 +214,7 @@ func (h *Host) DialTimeout(address string, timeout time.Duration) (net.Conn, err
 
 	netConn, err := net.DialTimeout("tcp", lr.netL.Addr().String(), timeout)
 	if err != nil {
-		return nil, maskError(err, addr{h.Name, -1}, addr{rhost, rport})
+		return nil, maskError(addr{h.Name, -1}, addr{rhost, rport}, err)
 	}
 
 	_, sport, _ = net.SplitHostPort(netConn.LocalAddr().String())
@@ -241,7 +241,7 @@ type listener struct {
 func (l *listener) Accept() (net.Conn, error) {
 	netConn, err := l.netL.Accept()
 	if err != nil {
-		return nil, maskError(err, l.addr, nil)
+		return nil, maskError(l.addr, nil, err)
 	}
 
 	var remote addr
@@ -286,7 +286,7 @@ func (l *listener) Addr() net.Addr {
 
 // if *net.OpError change its Op, Source and Addr values
 // to correspond fnet specific
-func maskError(err error, local, remote net.Addr) error {
+func maskError(local, remote net.Addr, err error) error {
 	if err, ok := err.(*net.OpError); ok {
 		err.Net = "fnet"
 		if err.Source == nil {
