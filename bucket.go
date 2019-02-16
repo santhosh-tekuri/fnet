@@ -115,13 +115,13 @@ func (b *bucket) request(take bool, n int64, deadline time.Time) (time.Duration,
 	if timeout {
 		return sleep, 0, deadline
 	}
+	now = b.time
 
 	n = min(n, b.maxTokensFor(deadline))
 	if take {
 		b.remove(n)
-		return sleep, n, b.time
 	}
-	return sleep, n, b.time.Add(b.durationFor(n))
+	return sleep, n, now.Add(b.durationFor(n))
 }
 
 func min(a, b int64) int64 {
