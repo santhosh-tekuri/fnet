@@ -306,40 +306,37 @@ func (c *conn) Read(b []byte) (n int, err error) {
 		return n, c.maskError(err, "read")
 	}
 
-	c.mu.Lock()
-	rd := c.rd
-	c.mu.Unlock()
-
 	rlimit := c.net.getLimits(c.local.host, c.remote.host)[0]
 	if rlimit == nil {
-		err = c.netConn.SetReadDeadline(rd)
-		if err != nil {
-			return 0, c.maskError(err, "read")
+		err = c.netConn.SetReadDeadline(c.readDeadline())
+		if err == nil {
+			n, err = c.netConn.Read(b)
 		}
-		n, err := c.netConn.Read(b)
 		return n, c.maskError(err, "read")
 	}
 
 	for {
-		d, max, deadline := rlimit.request(false, int64(len(b)), rd)
+		d, max, deadline := rlimit.request(false, int64(len(b)), c.readDeadline())
 		time.Sleep(d)
 		if max <= 0 {
 			return 0, timeoutError{}
 		}
-		err = c.netConn.SetReadDeadline(deadline)
-		if err != nil {
-			return 0, c.maskError(err, "read")
-		}
-		n, err = c.netConn.Read(b[:int(max)])
-		rlimit.taken(int64(n))
 
-		if err, ok := err.(net.Error); ok && err.Timeout() && (rd.IsZero() || time.Now().Before(rd)) {
+		err = c.netConn.SetReadDeadline(deadline)
+		if err == nil {
+			n, err = c.netConn.Read(b[:int(max)])
+			rlimit.taken(int64(n))
+		}
+
+		if err, ok := err.(net.Error); ok && err.Timeout() {
 			if n == 0 {
 				continue
 			}
 			err = nil
 		}
-		time.Sleep(deadline.Sub(time.Now()))
+		if rd := c.readDeadline(); rd.IsZero() || deadline.Before(rd) { // user could have change rd, meanwhile
+			time.Sleep(deadline.Sub(time.Now()))
+		}
 		return n, c.maskError(err, "read")
 	}
 }
@@ -354,43 +351,39 @@ func (c *conn) Write(b []byte) (n int, err error) {
 		return n, c.maskError(err, "write")
 	}
 
-	c.mu.Lock()
-	wd := c.wd
-	c.mu.Unlock()
-
 	wlimit := c.net.getLimits(c.local.host, c.remote.host)[1]
 	if wlimit == nil {
-		err = c.netConn.SetWriteDeadline(wd)
-		if err != nil {
-			return 0, c.maskError(err, "write")
+		err = c.netConn.SetWriteDeadline(c.writeDeadline())
+		if err == nil {
+			n, err = c.netConn.Write(b)
 		}
-		n, err := c.netConn.Write(b)
 		return n, c.maskError(err, "write")
 	}
 
+	wrote := 0
 	for {
-		d, max, deadline := wlimit.request(true, int64(len(b)-n), wd)
+		d, max, deadline := wlimit.request(true, int64(len(b)-n), c.writeDeadline())
 		time.Sleep(d)
 		if max <= 0 {
-			return 0, timeoutError{}
+			return n, timeoutError{}
 		}
-		err = c.netConn.SetWriteDeadline(deadline)
-		if err != nil {
-			return 0, err
-		}
-		wrote, err := c.netConn.Write(b[n : n+int(max)])
-		n += wrote
 
-		if err != nil {
-			if err, ok := err.(net.Error); ok && err.Timeout() && (wd.IsZero() || time.Now().Before(wd)) {
-				continue
-			}
-			return n, c.maskError(err, "write")
+		err = c.netConn.SetWriteDeadline(deadline)
+		if err == nil {
+			wrote, err = c.netConn.Write(b[n : n+int(max)])
+			n += wrote
 		}
-		if n == len(b) {
+
+		if err, ok := err.(net.Error); ok && err.Timeout() {
+			continue
+		}
+		if err == nil && n < len(b) {
+			continue
+		}
+		if wd := c.writeDeadline(); wd.IsZero() || deadline.Before(wd) { // user could have change wd, meanwhile
 			time.Sleep(deadline.Sub(time.Now()))
-			return n, nil
 		}
+		return n, c.maskError(err, "write")
 	}
 }
 
@@ -422,6 +415,18 @@ func (c *conn) SetWriteDeadline(t time.Time) error {
 	defer c.mu.Unlock()
 	c.wd = t
 	return nil
+}
+
+func (c *conn) readDeadline() time.Time {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.rd
+}
+
+func (c *conn) writeDeadline() time.Time {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.wd
 }
 
 func (c *conn) LocalAddr() net.Addr {

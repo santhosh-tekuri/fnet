@@ -72,6 +72,7 @@ func (b *bucket) maxTokensFor(deadline time.Time) int64 {
 	return max
 }
 
+// if bucket is stale (i.e, b.time<now), update it
 func (b *bucket) update(now time.Time) {
 	if now.Before(b.time) {
 		return
