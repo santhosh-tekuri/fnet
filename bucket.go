@@ -42,8 +42,9 @@ func (b Bandwidth) burst() int64 {
 }
 
 type bucket struct {
-	mu sync.Mutex
 	Bandwidth
+
+	mu     sync.Mutex
 	tokens int64
 	time   time.Time
 }
