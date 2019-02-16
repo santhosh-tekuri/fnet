@@ -298,7 +298,7 @@ type conn struct {
 
 func (c *conn) Read(b []byte) (n int, err error) {
 	if !c.net.Firewall().Allow(c.local.host, c.remote.host) {
-		return 0, errors.New("Conn.Read: broken pipe")
+		return 0, c.opError("read", errors.New("broken pipe"))
 	}
 
 	if c.local.host == c.remote.host {
@@ -319,7 +319,7 @@ func (c *conn) Read(b []byte) (n int, err error) {
 		d, max, deadline := rlimit.request(false, int64(len(b)), c.readDeadline())
 		time.Sleep(d)
 		if max <= 0 {
-			return 0, &net.OpError{Op: "read", Net: "fnet", Source: c.local, Addr: c.remote, Err: timeoutError{}}
+			return 0, c.opError("read", timeoutError{})
 		}
 
 		err = c.netConn.SetReadDeadline(deadline)
@@ -343,7 +343,7 @@ func (c *conn) Read(b []byte) (n int, err error) {
 
 func (c *conn) Write(b []byte) (n int, err error) {
 	if !c.net.Firewall().Allow(c.local.host, c.remote.host) {
-		return 0, errors.New("Conn.Read: broken pipe")
+		return 0, c.opError("write", errors.New("broken pipe"))
 	}
 
 	if c.local.host == c.remote.host {
@@ -365,7 +365,7 @@ func (c *conn) Write(b []byte) (n int, err error) {
 		d, max, deadline := wlimit.request(true, int64(len(b)-n), c.writeDeadline())
 		time.Sleep(d)
 		if max <= 0 {
-			return n, &net.OpError{Op: "write", Net: "fnet", Source: c.local, Addr: c.remote, Err: timeoutError{}}
+			return n, c.opError("write", timeoutError{})
 		}
 
 		err = c.netConn.SetWriteDeadline(deadline)
@@ -457,6 +457,10 @@ func (c *conn) maskError(err error, op string) error {
 		err.Op = op
 	}
 	return err
+}
+
+func (c *conn) opError(op string, err error) error {
+	return &net.OpError{Op: op, Net: "fnet", Source: c.local, Addr: c.remote, Err: err}
 }
 
 // ---------------------------------------------
