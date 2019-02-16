@@ -206,16 +206,12 @@ func dial(lr net.Listener, host *fnet.Host) (dialed, accepted net.Conn, err erro
 	go func() {
 		defer wg.Done()
 		conn, errr := lr.Accept()
-		if errr != nil {
-			err = errr
-		}
-		accepted = conn
+		accepted, err = conn, errr
 	}()
 
 	conn, errr := host.DialTimeout(lr.Addr().String(), 1*time.Second)
 	if errr != nil {
-		err = errr
-		return
+		return nil, nil, errr
 	}
 	dialed = conn
 	wg.Wait()
