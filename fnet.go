@@ -319,7 +319,7 @@ func (c *conn) Read(b []byte) (n int, err error) {
 		d, max, deadline := rlimit.request(false, int64(len(b)), c.readDeadline())
 		time.Sleep(d)
 		if max <= 0 {
-			return 0, timeoutError{}
+			return 0, &net.OpError{Op: "read", Net: "fnet", Source: c.local, Addr: c.remote, Err: timeoutError{}}
 		}
 
 		err = c.netConn.SetReadDeadline(deadline)
@@ -365,7 +365,7 @@ func (c *conn) Write(b []byte) (n int, err error) {
 		d, max, deadline := wlimit.request(true, int64(len(b)-n), c.writeDeadline())
 		time.Sleep(d)
 		if max <= 0 {
-			return n, timeoutError{}
+			return n, &net.OpError{Op: "write", Net: "fnet", Source: c.local, Addr: c.remote, Err: timeoutError{}}
 		}
 
 		err = c.netConn.SetWriteDeadline(deadline)
@@ -498,9 +498,5 @@ func (timeoutError) Error() string {
 }
 
 func (timeoutError) Timeout() bool {
-	return true
-}
-
-func (timeoutError) Temporary() bool {
 	return true
 }
