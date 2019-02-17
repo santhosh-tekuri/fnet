@@ -211,13 +211,14 @@ func (h *Host) DialTimeout(address string, timeout time.Duration) (net.Conn, err
 	h.net.setPort(netPort, h.Name)
 
 	return &conn{
-		net:      h.net,
-		local:    addr{h.Name, netPort},
-		remote:   addr{rhost, rport},
-		netConn:  netConn,
-		usedPort: netPort,
-		rd:       makeDeadline(),
-		wd:       makeDeadline(),
+		net:       h.net,
+		local:     addr{h.Name, netPort},
+		remote:    addr{rhost, rport},
+		netConn:   netConn,
+		usedPort:  netPort,
+		rd:        makeDeadline(),
+		wd:        makeDeadline(),
+		closeDone: make(chan struct{}),
 	}, nil
 }
 
@@ -249,13 +250,14 @@ func (l *listener) Accept() (net.Conn, error) {
 	}
 
 	return &conn{
-		net:      l.host.net,
-		local:    l.addr,
-		remote:   remote,
-		netConn:  netConn,
-		usedPort: remote.port,
-		rd:       makeDeadline(),
-		wd:       makeDeadline(),
+		net:       l.host.net,
+		local:     l.addr,
+		remote:    remote,
+		netConn:   netConn,
+		usedPort:  remote.port,
+		rd:        makeDeadline(),
+		wd:        makeDeadline(),
+		closeDone: make(chan struct{}),
 	}, nil
 }
 

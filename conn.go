@@ -15,6 +15,7 @@
 package fnet
 
 import (
+	"io"
 	"net"
 	"sync"
 	"syscall"
@@ -28,6 +29,9 @@ type conn struct {
 	netConn  net.Conn
 	usedPort int // ephermal port used. to be released on close
 	rd, wd   *deadline
+
+	closeOnce sync.Once
+	closeDone chan struct{}
 }
 
 func (c *conn) Read(b []byte) (n int, err error) {
@@ -51,8 +55,8 @@ func (c *conn) Read(b []byte) (n int, err error) {
 
 	for {
 		d, max, deadline := rlimit.request(false, int64(len(b)), c.rd.get())
-		if !c.rd.sleep(d) {
-			return 0, c.opError("read", timeoutError{})
+		if err := c.sleep(d, c.rd); err != nil {
+			return 0, c.opError("read", err)
 		}
 		if max <= 0 {
 			return 0, c.opError("read", timeoutError{})
@@ -70,7 +74,7 @@ func (c *conn) Read(b []byte) (n int, err error) {
 			}
 			err = nil
 		}
-		c.rd.sleep(time.Until(deadline))
+		_ = c.sleep(time.Until(deadline), c.rd)
 		return n, c.maskError("read", err)
 	}
 }
@@ -97,8 +101,8 @@ func (c *conn) Write(b []byte) (n int, err error) {
 	wrote := 0
 	for {
 		d, max, deadline := wlimit.request(true, int64(len(b)-n), c.wd.get())
-		if !c.wd.sleep(d) {
-			return 0, c.opError("write", timeoutError{})
+		if err := c.sleep(d, c.wd); err != nil {
+			return 0, c.opError("write", err)
 		}
 		if max <= 0 {
 			return n, c.opError("write", timeoutError{})
@@ -116,7 +120,7 @@ func (c *conn) Write(b []byte) (n int, err error) {
 		if err == nil && n < len(b) {
 			continue
 		}
-		c.wd.sleep(time.Until(deadline))
+		_ = c.sleep(time.Until(deadline), c.wd)
 		return n, c.maskError("write", err)
 	}
 }
@@ -155,7 +159,10 @@ func (c *conn) RemoteAddr() net.Addr {
 }
 
 func (c *conn) Close() error {
-	c.net.setPort(c.usedPort, "")
+	c.closeOnce.Do(func() {
+		close(c.closeDone)
+		c.net.setPort(c.usedPort, "")
+	})
 	return c.maskError("close", c.netConn.Close())
 }
 
@@ -170,6 +177,27 @@ func (c *conn) maskError(op string, err error) error {
 func (c *conn) opError(op string, err error) error {
 	return &net.OpError{Op: op, Net: "fnet", Source: c.local, Addr: c.remote, Err: err}
 }
+
+// sleeps for the given duration. if deadline or close, happends
+// it wakes up and returns appropriate error if applicable, else
+// continues sleeping
+func (c *conn) sleep(dur time.Duration, d *deadline) error {
+	sleep := time.After(dur)
+	for {
+		select {
+		case <-sleep:
+			return nil
+		case <-c.closeDone:
+			return io.ErrClosedPipe
+		case <-d.wait():
+			if d.isTimeout() {
+				return timeoutError{}
+			}
+		}
+	}
+}
+
+// --------------------------------------------------
 
 type deadline struct {
 	mu     sync.RWMutex
@@ -230,22 +258,6 @@ func (d *deadline) set(t time.Time) {
 	// Time in the past, so close immediately.
 	if !closed {
 		close(d.cancel)
-	}
-}
-
-// sleeps for the given duration or deadline reached
-// returns false if sleep is interrupted by deadline
-func (d *deadline) sleep(dur time.Duration) bool {
-	sleep := time.After(dur)
-	for {
-		select {
-		case <-sleep:
-			return true
-		case <-d.wait():
-			if d.isTimeout() {
-				return false
-			}
-		}
 	}
 }
 

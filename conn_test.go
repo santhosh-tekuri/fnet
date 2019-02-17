@@ -1,13 +1,16 @@
 package fnet
 
 import (
+	"io"
 	"net"
 	"sync"
 	"testing"
 	"time"
 )
 
-func TestConn_ReadWrite_interruptSleep(t *testing.T) {
+// tests that setting deadline applies to
+// Read and Write operations which are sleeping.
+func TestConn_ReadWrite_interruptSleepByDeadline(t *testing.T) {
 	orig := timeNow
 	defer func() {
 		timeNow = orig
@@ -62,6 +65,63 @@ func TestConn_ReadWrite_interruptSleep(t *testing.T) {
 	}()
 }
 
+// tests that on closing any pending
+// Read and Write operations which are sleeping return closed pipe.
+func TestConn_ReadWrite_interruptSleepByClose(t *testing.T) {
+	orig := timeNow
+	defer func() {
+		timeNow = orig
+	}()
+
+	nw := New()
+	earth, mars := nw.Host("earth"), nw.Host("mars")
+	lr := listen(t, earth, 80)
+	dconn, _, err := dial(lr, mars)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now()
+	timeNow = func() time.Time {
+		return now.Add(time.Hour)
+	}
+	nw.SetBandwidth("earth", "mars", Bandwidth(1024))
+	timeNow = func() time.Time {
+		return now
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(3)
+	defer wg.Wait()
+	ch := make(chan struct{})
+	go func() {
+		defer wg.Done()
+		close(ch)
+		time.Sleep(100 * time.Millisecond)
+		if err := dconn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		<-ch
+		n, err := dconn.Read(make([]byte, 1024))
+		ensureClosedPipe(t, err)
+		if n != 0 {
+			t.Fatalf("Read: got %d, want 0", n)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		<-ch
+		n, err := dconn.Write(make([]byte, 1024))
+		ensureClosedPipe(t, err)
+		if n != 0 {
+			t.Fatalf("Write: got %d, want 0", n)
+		}
+	}()
+}
+
 func ensureTimeout(t *testing.T, err error) {
 	t.Helper()
 	if nerr, ok := err.(net.Error); ok {
@@ -70,5 +130,16 @@ func ensureTimeout(t *testing.T, err error) {
 		}
 	} else {
 		t.Errorf("got %T, want net.Error", err)
+	}
+}
+
+func ensureClosedPipe(t *testing.T, err error) {
+	t.Helper()
+	if nerr, ok := err.(*net.OpError); ok {
+		if nerr.Err != io.ErrClosedPipe {
+			t.Errorf("got %v, want %v", nerr.Err, io.ErrClosedPipe)
+		}
+	} else {
+		t.Errorf("got %T, want *net.OpError", err)
 	}
 }
