@@ -94,11 +94,13 @@ func (b *bucket) waitTime(now time.Time, deadline time.Time) (sleep time.Duratio
 	return deadline.Sub(now), true
 }
 
-func (b *bucket) remove(n int64) time.Time {
-	n -= b.tokens
-	b.tokens = 0
-	b.time = b.time.Add(b.durationFor(n))
-	return b.time
+func (b *bucket) remove(n int64) {
+	free := min(n, b.tokens)
+	n -= free
+	b.tokens -= free
+	if n > 0 {
+		b.time = b.time.Add(b.durationFor(n))
+	}
 }
 
 func (b *bucket) taken(n int64) {
