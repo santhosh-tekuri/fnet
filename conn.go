@@ -17,17 +17,16 @@ package fnet
 import (
 	"errors"
 	"net"
-	"strconv"
 	"sync"
 	"time"
 )
 
 type conn struct {
-	net     *Network
-	local   addr
-	remote  addr
-	netConn net.Conn
-	dialed  bool
+	net      *Network
+	local    addr
+	remote   addr
+	netConn  net.Conn
+	usedPort int // ephermal port used. to be released on close
 
 	mu     sync.RWMutex
 	rd, wd time.Time
@@ -175,16 +174,7 @@ func (c *conn) RemoteAddr() net.Addr {
 }
 
 func (c *conn) Close() error {
-	var hostPort string
-	if c.dialed {
-		hostPort = c.netConn.LocalAddr().String()
-	} else {
-		hostPort = c.netConn.RemoteAddr().String()
-	}
-	_, sport, _ := net.SplitHostPort(hostPort)
-	port, _ := strconv.Atoi(sport)
-	c.net.setPort(port, "")
-
+	c.net.setPort(c.usedPort, "")
 	return c.maskError("close", c.netConn.Close())
 }
 

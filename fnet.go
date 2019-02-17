@@ -17,7 +17,6 @@ package fnet
 import (
 	"fmt"
 	"net"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -137,16 +136,12 @@ type Host struct {
 
 // Listen implements net.Listen for "fnet" network.
 func (h *Host) Listen(address string) (net.Listener, error) {
-	host, sport, err := net.SplitHostPort(address)
+	host, port, err := lookupHostPort(address)
 	if err != nil {
 		return nil, err
 	}
 	if host != "" && host != h.Name {
 		return nil, fmt.Errorf("fnet.Listen: cannot listen on diffent host %s", host)
-	}
-	port, err := strconv.Atoi(sport)
-	if err != nil {
-		return nil, fmt.Errorf("fnet.Listen: invalid port in address %s", address)
 	}
 
 	h.mu.Lock()
@@ -162,8 +157,7 @@ func (h *Host) Listen(address string) (net.Listener, error) {
 	if err != nil {
 		return nil, maskError(nil, addr{host, port}, err)
 	}
-	_, sport, _ = net.SplitHostPort(netL.Addr().String())
-	netPort, _ := strconv.Atoi(sport)
+	_, netPort, _ := lookupHostPort(netL.Addr().String())
 	if port == 0 {
 		port = netPort
 	}
@@ -185,13 +179,9 @@ func (h *Host) Dial(address string) (net.Conn, error) {
 
 // DialTimeout implements net.DialTimeout for "fnet" network.
 func (h *Host) DialTimeout(address string, timeout time.Duration) (net.Conn, error) {
-	rhost, sport, err := net.SplitHostPort(address)
+	rhost, rport, err := lookupHostPort(address)
 	if err != nil {
 		return nil, err
-	}
-	rport, err := strconv.Atoi(sport)
-	if err != nil {
-		return nil, fmt.Errorf("fnet.Dial: invalid port in address %s", address)
 	}
 
 	h.net.mu.RLock()
@@ -217,16 +207,15 @@ func (h *Host) DialTimeout(address string, timeout time.Duration) (net.Conn, err
 		return nil, maskError(addr{h.Name, -1}, addr{rhost, rport}, err)
 	}
 
-	_, sport, _ = net.SplitHostPort(netConn.LocalAddr().String())
-	netPort, _ := strconv.Atoi(sport)
+	_, netPort, _ := lookupHostPort(netConn.LocalAddr().String())
 	h.net.setPort(netPort, h.Name)
 
 	return &conn{
-		net:     h.net,
-		local:   addr{h.Name, netPort},
-		remote:  addr{rhost, rport},
-		netConn: netConn,
-		dialed:  true,
+		net:      h.net,
+		local:    addr{h.Name, netPort},
+		remote:   addr{rhost, rport},
+		netConn:  netConn,
+		usedPort: netPort,
 	}, nil
 }
 
@@ -245,8 +234,7 @@ func (l *listener) Accept() (net.Conn, error) {
 	}
 
 	var remote addr
-	_, port, _ := net.SplitHostPort(netConn.RemoteAddr().String())
-	remote.port, _ = strconv.Atoi(port)
+	_, remote.port, _ = lookupHostPort(netConn.RemoteAddr().String())
 
 	for {
 		host := l.host.net.hostname(remote.port)
@@ -259,10 +247,11 @@ func (l *listener) Accept() (net.Conn, error) {
 	}
 
 	return &conn{
-		net:     l.host.net,
-		local:   l.addr,
-		remote:  remote,
-		netConn: netConn,
+		net:      l.host.net,
+		local:    l.addr,
+		remote:   remote,
+		netConn:  netConn,
+		usedPort: remote.port,
 	}, nil
 }
 
@@ -271,8 +260,7 @@ func (l *listener) Close() error {
 	delete(l.host.lrs, l.addr.port)
 	l.host.mu.Unlock()
 
-	_, sport, _ := net.SplitHostPort(l.Addr().String())
-	port, _ := strconv.Atoi(sport)
+	_, port, _ := lookupHostPort(l.Addr().String())
 	l.host.net.setPort(port, "")
 
 	return l.netL.Close()
@@ -296,6 +284,15 @@ func maskError(local, remote net.Addr, err error) error {
 		}
 	}
 	return err
+}
+
+func lookupHostPort(addr string) (host string, port int, err error) {
+	host, service, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", 0, err
+	}
+	port, err = net.LookupPort("tcp", service)
+	return host, port, err
 }
 
 type addr struct {
