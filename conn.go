@@ -35,6 +35,9 @@ type conn struct {
 }
 
 func (c *conn) Read(b []byte) (n int, err error) {
+	if c.isClosed() {
+		return 0, io.ErrClosedPipe
+	}
 	if !c.net.Firewall().Allow(c.local.host, c.remote.host) {
 		return 0, c.opError("read", syscall.EPIPE)
 	}
@@ -80,6 +83,9 @@ func (c *conn) Read(b []byte) (n int, err error) {
 }
 
 func (c *conn) Write(b []byte) (n int, err error) {
+	if c.isClosed() {
+		return 0, io.ErrClosedPipe
+	}
 	if !c.net.Firewall().Allow(c.local.host, c.remote.host) {
 		return 0, c.opError("write", syscall.EPIPE)
 	}
@@ -126,6 +132,9 @@ func (c *conn) Write(b []byte) (n int, err error) {
 }
 
 func (c *conn) SetDeadline(t time.Time) error {
+	if c.isClosed() {
+		return io.ErrClosedPipe
+	}
 	if c.local.host == c.remote.host {
 		return c.maskError("set", c.netConn.SetDeadline(t))
 	}
@@ -135,6 +144,9 @@ func (c *conn) SetDeadline(t time.Time) error {
 }
 
 func (c *conn) SetReadDeadline(t time.Time) error {
+	if c.isClosed() {
+		return io.ErrClosedPipe
+	}
 	if c.local.host == c.remote.host {
 		return c.maskError("set", c.netConn.SetReadDeadline(t))
 	}
@@ -143,6 +155,9 @@ func (c *conn) SetReadDeadline(t time.Time) error {
 }
 
 func (c *conn) SetWriteDeadline(t time.Time) error {
+	if c.isClosed() {
+		return io.ErrClosedPipe
+	}
 	if c.local.host == c.remote.host {
 		return c.maskError("set", c.netConn.SetWriteDeadline(t))
 	}
@@ -164,6 +179,15 @@ func (c *conn) Close() error {
 		c.net.setPort(c.usedPort, "")
 	})
 	return c.maskError("close", c.netConn.Close())
+}
+
+func (c *conn) isClosed() bool {
+	select {
+	case <-c.closeDone:
+		return true
+	default:
+		return false
+	}
 }
 
 func (c *conn) maskError(op string, err error) error {

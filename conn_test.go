@@ -22,6 +22,31 @@ import (
 	"time"
 )
 
+func TestConnCloseError(t *testing.T) {
+	nw := New()
+	earth, mars := nw.Host("earth"), nw.Host("mars")
+	lr := listen(t, earth, 80)
+	c1, c2, err := dial(lr, mars)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_ = c1.Close()
+
+	if _, err := c1.Read(nil); err != io.ErrClosedPipe {
+		t.Errorf("c1.Read() = %v, want io.ErrClosedPipe", err)
+	}
+	if _, err := c1.Write(nil); err != io.ErrClosedPipe {
+		t.Errorf("c1.Write() = %v, want io.ErrClosedPipe", err)
+	}
+	if err := c1.SetDeadline(time.Time{}); err != io.ErrClosedPipe {
+		t.Errorf("c1.SetDeadline() = %v, want io.ErrClosedPipe", err)
+	}
+	if _, err := c2.Read(make([]byte, 1)); err != io.EOF {
+		t.Errorf("c2.Read() = %v, want io.EOF", err)
+	}
+}
+
 // tests that setting deadline applies to
 // Read and Write operations which are sleeping.
 func TestConn_ReadWrite_interruptSleepByDeadline(t *testing.T) {
