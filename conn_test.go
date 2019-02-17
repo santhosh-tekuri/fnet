@@ -161,6 +161,64 @@ func TestConn_ReadWrite_interruptSleepByClose(t *testing.T) {
 	}()
 }
 
+// tests that if user's deadline is less than
+// bucket wait, it should sleep and timeout
+func TestConn_SleepAndTimeout(t *testing.T) {
+	orig := timeNow
+	defer func() {
+		timeNow = orig
+	}()
+
+	nw := New()
+	earth, mars := nw.Host("earth"), nw.Host("mars")
+	lr := listen(t, earth, 80)
+	dconn, _, err := dial(lr, mars)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now()
+	timeNow = func() time.Time {
+		return now.Add(time.Hour)
+	}
+	nw.SetBandwidth("earth", "mars", Bandwidth(1024))
+	timeNow = orig
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	defer wg.Wait()
+	go func() {
+		defer wg.Done()
+		now := time.Now()
+		if err := dconn.SetReadDeadline(now.Add(2 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		n, err := dconn.Read(make([]byte, 1))
+		ensureTimeout(t, err)
+		if n != 0 {
+			t.Fatalf("got %d, want 0", n)
+		}
+		if wait := time.Now().Sub(now).Seconds(); wait < 2 {
+			t.Fatalf("wait: got %f, want >=2", wait)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		now := time.Now()
+		if err := dconn.SetWriteDeadline(now.Add(2 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		n, err := dconn.Write(make([]byte, 1))
+		ensureTimeout(t, err)
+		if n != 0 {
+			t.Fatalf("got %d, want 0", n)
+		}
+		if wait := time.Now().Sub(now).Seconds(); wait < 2 {
+			t.Fatalf("wait: got %f, want >=2", wait)
+		}
+	}()
+}
+
 func ensureTimeout(t *testing.T, err error) {
 	t.Helper()
 	if nerr, ok := err.(net.Error); ok {
