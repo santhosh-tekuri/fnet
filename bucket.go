@@ -53,7 +53,7 @@ func newBucket(bw Bandwidth) *bucket {
 	if bw == NoLimit {
 		return nil
 	}
-	return &bucket{Bandwidth: bw, time: time.Now()}
+	return &bucket{Bandwidth: bw, time: timeNow()}
 }
 
 // how many max tokens can be taken now, for given deadline
@@ -104,7 +104,7 @@ func (b *bucket) remove(n int64) time.Time {
 func (b *bucket) taken(n int64) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.update(time.Now())
+	b.update(timeNow())
 	b.remove(n)
 }
 
@@ -118,7 +118,7 @@ func (b *bucket) request(take bool, n int64, deadline time.Time) (time.Duration,
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	now := time.Now()
+	now := timeNow()
 	b.update(now)
 	sleep, timeout := b.waitTime(now, deadline)
 	if timeout {
@@ -138,4 +138,9 @@ func min(a, b int64) int64 {
 		return a
 	}
 	return b
+}
+
+// mocked during tests
+var timeNow = func() time.Time {
+	return time.Now()
 }

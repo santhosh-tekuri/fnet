@@ -71,7 +71,7 @@ func TestBucket_maxTokensFor(t *testing.T) {
 	}
 }
 
-func TestBandwidth_update(t *testing.T) {
+func TestBucket_update(t *testing.T) {
 	b := newBucket(Bandwidth(1e9))
 	now := b.time
 
@@ -102,5 +102,37 @@ func TestBandwidth_update(t *testing.T) {
 	}
 	if b.tokens != b.burst() {
 		t.Fatalf("got %d, want %d", b.tokens, b.burst())
+	}
+}
+
+func TestBucket_request_staleDeadline(t *testing.T) {
+	now := time.Now()
+	orig := timeNow
+	timeNow = func() time.Time {
+		return now
+	}
+	defer func() {
+		timeNow = orig
+	}()
+
+	deadline := now.Add(-time.Second)
+	tests := []struct {
+		name string
+		b    *bucket
+	}{
+		{"stale bucket", &bucket{Bandwidth: Bandwidth(1e9), time: deadline}},
+		{"now bucket", &bucket{Bandwidth: Bandwidth(1e9), time: now, tokens: 20}},
+		{"future bucket", &bucket{Bandwidth: Bandwidth(1e9), time: now.Add(time.Second)}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			sleep, n, _ := test.b.request(true, 10, deadline)
+			if sleep > 0 {
+				t.Fatalf("sleep: got %v, want <=0", sleep)
+			}
+			if n != 0 {
+				t.Fatalf("n: got %d, want 0", n)
+			}
+		})
 	}
 }
