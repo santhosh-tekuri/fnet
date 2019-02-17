@@ -27,9 +27,7 @@ type conn struct {
 	remote   addr
 	netConn  net.Conn
 	usedPort int // ephermal port used. to be released on close
-
-	mu     sync.RWMutex
-	rd, wd time.Time
+	rd, wd   deadline
 }
 
 func (c *conn) Read(b []byte) (n int, err error) {
@@ -44,7 +42,7 @@ func (c *conn) Read(b []byte) (n int, err error) {
 
 	rlimit := c.net.getLimits(c.local.host, c.remote.host)[0]
 	if rlimit == nil {
-		err = c.netConn.SetReadDeadline(c.readDeadline())
+		err = c.netConn.SetReadDeadline(c.rd.get())
 		if err == nil {
 			n, err = c.netConn.Read(b)
 		}
@@ -52,8 +50,10 @@ func (c *conn) Read(b []byte) (n int, err error) {
 	}
 
 	for {
-		d, max, deadline := rlimit.request(false, int64(len(b)), c.readDeadline())
-		time.Sleep(d)
+		d, max, deadline := rlimit.request(false, int64(len(b)), c.rd.get())
+		if !c.rd.sleep(d) {
+			return 0, c.opError("read", timeoutError{})
+		}
 		if max <= 0 {
 			return 0, c.opError("read", timeoutError{})
 		}
@@ -70,9 +70,7 @@ func (c *conn) Read(b []byte) (n int, err error) {
 			}
 			err = nil
 		}
-		if rd := c.readDeadline(); rd.IsZero() || deadline.Before(rd) { // user could have change rd, meanwhile
-			time.Sleep(deadline.Sub(time.Now()))
-		}
+		c.rd.sleep(time.Until(deadline))
 		return n, c.maskError("read", err)
 	}
 }
@@ -89,7 +87,7 @@ func (c *conn) Write(b []byte) (n int, err error) {
 
 	wlimit := c.net.getLimits(c.local.host, c.remote.host)[1]
 	if wlimit == nil {
-		err = c.netConn.SetWriteDeadline(c.writeDeadline())
+		err = c.netConn.SetWriteDeadline(c.wd.get())
 		if err == nil {
 			n, err = c.netConn.Write(b)
 		}
@@ -98,8 +96,10 @@ func (c *conn) Write(b []byte) (n int, err error) {
 
 	wrote := 0
 	for {
-		d, max, deadline := wlimit.request(true, int64(len(b)-n), c.writeDeadline())
-		time.Sleep(d)
+		d, max, deadline := wlimit.request(true, int64(len(b)-n), c.wd.get())
+		if !c.wd.sleep(d) {
+			return 0, c.opError("write", timeoutError{})
+		}
 		if max <= 0 {
 			return n, c.opError("write", timeoutError{})
 		}
@@ -116,9 +116,7 @@ func (c *conn) Write(b []byte) (n int, err error) {
 		if err == nil && n < len(b) {
 			continue
 		}
-		if wd := c.writeDeadline(); wd.IsZero() || deadline.Before(wd) { // user could have change wd, meanwhile
-			time.Sleep(deadline.Sub(time.Now()))
-		}
+		c.wd.sleep(time.Until(deadline))
 		return n, c.maskError("write", err)
 	}
 }
@@ -127,9 +125,8 @@ func (c *conn) SetDeadline(t time.Time) error {
 	if c.local.host == c.remote.host {
 		return c.maskError("set", c.netConn.SetDeadline(t))
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.rd, c.wd = t, t
+	c.rd.set(t)
+	c.wd.set(t)
 	return nil
 }
 
@@ -137,9 +134,7 @@ func (c *conn) SetReadDeadline(t time.Time) error {
 	if c.local.host == c.remote.host {
 		return c.maskError("set", c.netConn.SetReadDeadline(t))
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.rd = t
+	c.rd.set(t)
 	return nil
 }
 
@@ -147,22 +142,8 @@ func (c *conn) SetWriteDeadline(t time.Time) error {
 	if c.local.host == c.remote.host {
 		return c.maskError("set", c.netConn.SetWriteDeadline(t))
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.wd = t
+	c.wd.set(t)
 	return nil
-}
-
-func (c *conn) readDeadline() time.Time {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.rd
-}
-
-func (c *conn) writeDeadline() time.Time {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.wd
 }
 
 func (c *conn) LocalAddr() net.Addr {
@@ -188,4 +169,93 @@ func (c *conn) maskError(op string, err error) error {
 
 func (c *conn) opError(op string, err error) error {
 	return &net.OpError{Op: op, Net: "fnet", Source: c.local, Addr: c.remote, Err: err}
+}
+
+type deadline struct {
+	mu     sync.RWMutex
+	time   time.Time
+	timer  *time.Timer
+	cancel chan struct{}
+}
+
+func (d *deadline) get() time.Time {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.time
+}
+
+func (d *deadline) set(t time.Time) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.time = t
+	if d.timer != nil && !d.timer.Stop() {
+		<-d.cancel // Wait for the timer callback to finish and close cancel
+	}
+	d.timer = nil
+
+	// Time is zero, then there is no deadline.
+	var closed bool
+	select {
+	case <-d.cancel:
+		closed = true
+	default:
+		closed = false
+	}
+
+	if t.IsZero() {
+		if closed {
+			d.cancel = make(chan struct{})
+		}
+		return
+	}
+
+	// Time in the future, setup a timer to cancel in the future.
+	if dur := time.Until(t); dur > 0 {
+		if closed {
+			d.cancel = make(chan struct{})
+		}
+		d.timer = time.AfterFunc(dur, func() {
+			close(d.cancel)
+		})
+		return
+	}
+
+	// Time in the past, so close immediately.
+	if !closed {
+		close(d.cancel)
+	}
+}
+
+// sleeps for the given duration or deadline reached
+// returns false if sleep is interrupted by deadline
+func (d *deadline) sleep(dur time.Duration) bool {
+	sleep := time.After(dur)
+	for {
+		select {
+		case <-sleep:
+			return true
+		case <-d.wait():
+			if d.isTimeout() {
+				return false
+			}
+		}
+	}
+}
+
+func (d *deadline) wait() <-chan struct{} {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.cancel
+}
+
+func (d *deadline) isTimeout() bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	select {
+	case <-d.cancel:
+		return true
+	default:
+		return false
+	}
 }
