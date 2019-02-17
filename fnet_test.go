@@ -95,6 +95,38 @@ func TestCommunication(t *testing.T) {
 
 }
 
+func TestLookupPort(t *testing.T) {
+	nw := fnet.New()
+	earth := nw.Host("earth")
+	lr, err := earth.Listen("earth:http")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := lr.Addr().String(), "earth:80"; got != want {
+		t.Fatalf("addr: got %s, want %s", got, want)
+	}
+	ch := make(chan struct{})
+	go func() {
+		defer close(ch)
+		conn, err := lr.Accept()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		if got, want := conn.LocalAddr().String(), "earth:80"; got != want {
+			t.Fatalf("addr: got %s, want %s", got, want)
+		}
+	}()
+	conn, err := earth.Dial("earth:http")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := conn.RemoteAddr().String(), "earth:80"; got != want {
+		t.Fatalf("addr: got %s, want %s", got, want)
+	}
+	<-ch
+}
+
 func TestHostBandwidth(t *testing.T) {
 	nw := fnet.New()
 	earth, mars := nw.Host("earth"), nw.Host("mars")
