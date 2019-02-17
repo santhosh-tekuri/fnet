@@ -15,6 +15,8 @@
 package fnet_test
 
 import (
+	"net"
+	"syscall"
 	"testing"
 
 	"github.com/santhosh-tekuri/fnet"
@@ -24,8 +26,15 @@ func TestFirewall_AllowSelf(t *testing.T) {
 	nw := fnet.New()
 	earth, mars, venus := nw.Host("earth"), nw.Host("mars"), nw.Host("venus")
 
-	nw.SetFirewall(fnet.AllowSelf)
 	elr, mlr, vlr := listen(t, earth, 80), listen(t, mars, 80), listen(t, venus, 80)
+	dconn, aconn, err := dial(elr, mars)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	nw.SetFirewall(fnet.AllowSelf)
+	ensureBroken(t, dconn)
+	ensureBroken(t, aconn)
 	if _, _, err := dial(elr, earth); err != nil {
 		t.Fatal(err)
 	}
@@ -57,8 +66,15 @@ func TestFirewall_Split(t *testing.T) {
 	nw := fnet.New()
 	earth, mars, venus := nw.Host("earth"), nw.Host("mars"), nw.Host("venus")
 
-	nw.SetFirewall(fnet.Split([]string{"mars", "venus"}, fnet.AllowAll))
 	elr, mlr, vlr := listen(t, earth, 80), listen(t, mars, 80), listen(t, venus, 80)
+	dconn, aconn, err := dial(elr, mars)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	nw.SetFirewall(fnet.Split([]string{"mars", "venus"}, fnet.AllowAll))
+	ensureBroken(t, dconn)
+	ensureBroken(t, aconn)
 	if _, _, err := dial(elr, earth); err != nil {
 		t.Fatal(err)
 	}
@@ -77,4 +93,19 @@ func TestFirewall_Split(t *testing.T) {
 	if _, err := mars.Dial(elr.Addr().String()); err == nil {
 		t.Fatal("mars should not be able to dial earth")
 	}
+}
+
+func ensureBroken(t *testing.T, conn net.Conn) {
+	t.Helper()
+	if n, err := conn.Read(make([]byte, 10)); n != 0 || !isBrokenPipe(err) {
+		t.Fatalf("dconn.Read: got n=%d err=%v, want n=0 brokenPipe", n, err)
+	}
+	if n, err := conn.Write(make([]byte, 10)); n != 0 || !isBrokenPipe(err) {
+		t.Fatalf("dconn.Write: got n=%d err=%v, want n=0 brokenPipe", n, err)
+	}
+}
+
+func isBrokenPipe(err error) bool {
+	opError, ok := err.(*net.OpError)
+	return ok && opError.Err == syscall.EPIPE
 }

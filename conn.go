@@ -15,9 +15,9 @@
 package fnet
 
 import (
-	"errors"
 	"net"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -34,7 +34,7 @@ type conn struct {
 
 func (c *conn) Read(b []byte) (n int, err error) {
 	if !c.net.Firewall().Allow(c.local.host, c.remote.host) {
-		return 0, c.opError("read", errors.New("broken pipe"))
+		return 0, c.opError("read", syscall.EPIPE)
 	}
 
 	if c.local.host == c.remote.host {
@@ -79,7 +79,7 @@ func (c *conn) Read(b []byte) (n int, err error) {
 
 func (c *conn) Write(b []byte) (n int, err error) {
 	if !c.net.Firewall().Allow(c.local.host, c.remote.host) {
-		return 0, c.opError("write", errors.New("broken pipe"))
+		return 0, c.opError("write", syscall.EPIPE)
 	}
 
 	if c.local.host == c.remote.host {
