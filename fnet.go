@@ -216,6 +216,8 @@ func (h *Host) DialTimeout(address string, timeout time.Duration) (net.Conn, err
 		remote:   addr{rhost, rport},
 		netConn:  netConn,
 		usedPort: netPort,
+		rd:       makeDeadline(),
+		wd:       makeDeadline(),
 	}, nil
 }
 
@@ -252,6 +254,8 @@ func (l *listener) Accept() (net.Conn, error) {
 		remote:   remote,
 		netConn:  netConn,
 		usedPort: remote.port,
+		rd:       makeDeadline(),
+		wd:       makeDeadline(),
 	}, nil
 }
 

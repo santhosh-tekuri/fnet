@@ -27,7 +27,7 @@ type conn struct {
 	remote   addr
 	netConn  net.Conn
 	usedPort int // ephermal port used. to be released on close
-	rd, wd   deadline
+	rd, wd   *deadline
 }
 
 func (c *conn) Read(b []byte) (n int, err error) {
@@ -176,6 +176,12 @@ type deadline struct {
 	time   time.Time
 	timer  *time.Timer
 	cancel chan struct{}
+}
+
+func makeDeadline() *deadline {
+	return &deadline{
+		cancel: make(chan struct{}),
+	}
 }
 
 func (d *deadline) get() time.Time {

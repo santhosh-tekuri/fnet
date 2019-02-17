@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package fnet_test
+package fnet
 
 import (
 	"bytes"
@@ -25,12 +25,10 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/santhosh-tekuri/fnet"
 )
 
 func TestCommunication(t *testing.T) {
-	nw := fnet.New()
+	nw := New()
 	earth, mars := nw.Host("earth"), nw.Host("mars")
 
 	e80, e0 := listen(t, earth, 80), listen(t, earth, 0)
@@ -96,7 +94,7 @@ func TestCommunication(t *testing.T) {
 }
 
 func TestLookupPort(t *testing.T) {
-	nw := fnet.New()
+	nw := New()
 	earth := nw.Host("earth")
 	lr, err := earth.Listen("earth:http")
 	if err != nil {
@@ -128,7 +126,7 @@ func TestLookupPort(t *testing.T) {
 }
 
 func TestHostBandwidth(t *testing.T) {
-	nw := fnet.New()
+	nw := New()
 	earth, mars := nw.Host("earth"), nw.Host("mars")
 
 	lnr := listen(t, earth, 80)
@@ -188,7 +186,7 @@ func TestHostBandwidth(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			nw.SetBandwidth("earth", "mars", fnet.Bandwidth(test.bw))
+			nw.SetBandwidth("earth", "mars", Bandwidth(test.bw))
 			wg := new(sync.WaitGroup)
 			wg.Add(2)
 			wd, rd := writeRead(t, wg, dconn, aconn, test.rounds*test.bw)
@@ -207,7 +205,7 @@ func TestHostBandwidth(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		nw.SetBandwidth("earth", "mars", fnet.NoLimit)
+		nw.SetBandwidth("earth", "mars", NoLimit)
 		wg := new(sync.WaitGroup)
 		wg.Add(2)
 		wd, rd := writeRead(t, wg, dconn, aconn, 10*1024*1024)
@@ -223,7 +221,7 @@ func TestHostBandwidth(t *testing.T) {
 
 // -------------------------------------------------------
 
-func listen(t *testing.T, host *fnet.Host, port int) net.Listener {
+func listen(t *testing.T, host *Host, port int) net.Listener {
 	t.Helper()
 	lr, err := host.Listen(fmt.Sprintf("%s:%d", host.Name, port))
 	if err != nil {
@@ -232,7 +230,7 @@ func listen(t *testing.T, host *fnet.Host, port int) net.Listener {
 	return lr
 }
 
-func dial(lr net.Listener, host *fnet.Host) (dialed, accepted net.Conn, err error) {
+func dial(lr net.Listener, host *Host) (dialed, accepted net.Conn, err error) {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {

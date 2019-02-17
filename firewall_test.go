@@ -12,18 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package fnet_test
+package fnet
 
 import (
 	"net"
 	"syscall"
 	"testing"
-
-	"github.com/santhosh-tekuri/fnet"
 )
 
 func TestFirewall_AllowSelf(t *testing.T) {
-	nw := fnet.New()
+	nw := New()
 	earth, mars, venus := nw.Host("earth"), nw.Host("mars"), nw.Host("venus")
 
 	elr, mlr, vlr := listen(t, earth, 80), listen(t, mars, 80), listen(t, venus, 80)
@@ -32,7 +30,7 @@ func TestFirewall_AllowSelf(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	nw.SetFirewall(fnet.AllowSelf)
+	nw.SetFirewall(AllowSelf)
 	ensureBroken(t, dconn)
 	ensureBroken(t, aconn)
 	if _, _, err := dial(elr, earth); err != nil {
@@ -54,7 +52,7 @@ func TestFirewall_AllowSelf(t *testing.T) {
 		t.Fatal("mars should not be able to dial earth")
 	}
 
-	nw.SetFirewall(fnet.AllowAll)
+	nw.SetFirewall(AllowAll)
 	if _, _, err := dial(vlr, mars); err != nil {
 		t.Fatal()
 	}
@@ -63,7 +61,7 @@ func TestFirewall_AllowSelf(t *testing.T) {
 }
 
 func TestFirewall_Split(t *testing.T) {
-	nw := fnet.New()
+	nw := New()
 	earth, mars, venus := nw.Host("earth"), nw.Host("mars"), nw.Host("venus")
 
 	elr, mlr, vlr := listen(t, earth, 80), listen(t, mars, 80), listen(t, venus, 80)
@@ -72,7 +70,7 @@ func TestFirewall_Split(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	nw.SetFirewall(fnet.Split([]string{"mars", "venus"}, fnet.AllowAll))
+	nw.SetFirewall(Split([]string{"mars", "venus"}, AllowAll))
 	ensureBroken(t, dconn)
 	ensureBroken(t, aconn)
 	if _, _, err := dial(elr, earth); err != nil {
