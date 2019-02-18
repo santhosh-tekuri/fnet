@@ -115,7 +115,7 @@ func (c *conn) Write(b []byte) (n int, err error) {
 		if d > 0 {
 			c.sleep(d, c.wd)
 			if c.isClosed() {
-				return n, c.opError("read", io.ErrClosedPipe)
+				return n, c.opError("write", io.ErrClosedPipe)
 			}
 			continue
 		}
