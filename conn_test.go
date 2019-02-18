@@ -47,6 +47,8 @@ func TestConnCloseError(t *testing.T) {
 	ensureOpError(t, err, io.ErrClosedPipe)
 
 	ensureOpError(t, c1.SetDeadline(time.Time{}), io.ErrClosedPipe)
+	ensureOpError(t, c1.SetReadDeadline(time.Time{}), io.ErrClosedPipe)
+	ensureOpError(t, c1.SetWriteDeadline(time.Time{}), io.ErrClosedPipe)
 
 	if _, err := c2.Read(make([]byte, 1)); err != io.EOF {
 		t.Errorf("c2.Read() = %v, want io.EOF", err)
@@ -215,20 +217,52 @@ func TestConn_RetryNetConnRetry(t *testing.T) {
 	}
 	defer stop()
 
+	// make netConn write timout
+	for b := make([]byte, 1024); ; {
+		if err := dconn.SetWriteDeadline(time.Now().Add(1 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		_, err := dconn.Write(b)
+		if err != nil {
+			ensureTimeout(t, err)
+			break
+		}
+	}
+
 	nw.SetBandwidth("earth", "mars", Bandwidth(1024))
-	deadline := time.Now().Add(3 * time.Second)
-	if err = dconn.SetReadDeadline(deadline); err != nil {
-		t.Fatal(err)
-	}
-	n, err := dconn.Read(make([]byte, 10))
-	ensureTimeout(t, err)
-	if now := time.Now(); now.Before(deadline) {
-		t.Fatalf("read timedout %s before deadline", deadline.Sub(now))
-	}
-	if n != 0 {
-		t.Fatalf("read: got %d, want 0", n)
-	}
+
+	t.Run("Read", func(t *testing.T) {
+		deadline := time.Now().Add(3 * time.Second)
+		if err = dconn.SetReadDeadline(deadline); err != nil {
+			t.Fatal(err)
+		}
+		n, err := dconn.Read(make([]byte, 10))
+		ensureTimeout(t, err)
+		if now := time.Now(); now.Before(deadline) {
+			t.Fatalf("read timedout %s before deadline", deadline.Sub(now))
+		}
+		if n != 0 {
+			t.Fatalf("read: got %d, want 0", n)
+		}
+	})
+
+	t.Run("Write", func(t *testing.T) {
+		deadline := time.Now().Add(3 * time.Second)
+		if err = dconn.SetWriteDeadline(deadline); err != nil {
+			t.Fatal(err)
+		}
+		n, err := dconn.Write(make([]byte, 10))
+		ensureTimeout(t, err)
+		if now := time.Now(); now.Before(deadline) {
+			t.Fatalf("write timedout %s before deadline", deadline.Sub(now))
+		}
+		if n != 0 {
+			t.Fatalf("write: got %d, want 0", n)
+		}
+	})
 }
+
+// helpers -------------------------
 
 func makePipe() (nw *Network, dconn, aconn net.Conn, stop func(), err error) {
 	orig := timeNow
