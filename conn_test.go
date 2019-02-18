@@ -26,13 +26,17 @@ import (
 
 func TestConn_Basic(t *testing.T) {
 	nettest.TestConn(t, func() (c1, c2 net.Conn, stop func(), err error) {
-		_, c1, c2, stop, err = makePipe()
+		_, c1, c2, stop, err = makePipe("earth", "earth")
+		return
+	})
+	nettest.TestConn(t, func() (c1, c2 net.Conn, stop func(), err error) {
+		_, c1, c2, stop, err = makePipe("earth", "mars")
 		return
 	})
 }
 
 func TestConnCloseError(t *testing.T) {
-	_, c1, c2, stop, err := makePipe()
+	_, c1, c2, stop, err := makePipe("earth", "mars")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +62,7 @@ func TestConnCloseError(t *testing.T) {
 // tests that setting deadline applies to
 // Read and Write operations which are sleeping.
 func TestConn_ReadWrite_interruptSleepByDeadline(t *testing.T) {
-	nw, dconn, _, stop, err := makePipe()
+	nw, dconn, _, stop, err := makePipe("earth", "mars")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +112,7 @@ func TestConn_ReadWrite_interruptSleepByDeadline(t *testing.T) {
 // tests that on closing any pending
 // Read and Write operations which are sleeping return closed pipe.
 func TestConn_ReadWrite_interruptSleepByClose(t *testing.T) {
-	nw, dconn, _, stop, err := makePipe()
+	nw, dconn, _, stop, err := makePipe("earth", "mars")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +162,7 @@ func TestConn_ReadWrite_interruptSleepByClose(t *testing.T) {
 // tests that if user's deadline is less than
 // bucket wait, it should sleep and timeout
 func TestConn_SleepAndTimeout(t *testing.T) {
-	nw, dconn, _, stop, err := makePipe()
+	nw, dconn, _, stop, err := makePipe("earth", "mars")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +215,7 @@ func TestConn_SleepAndTimeout(t *testing.T) {
 // tests that, any netConn timeouts are retried until
 // user's deadline is reached
 func TestConn_RetryNetConnRetry(t *testing.T) {
-	nw, dconn, _, stop, err := makePipe()
+	nw, dconn, _, stop, err := makePipe("earth", "mars")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,16 +268,16 @@ func TestConn_RetryNetConnRetry(t *testing.T) {
 
 // helpers -------------------------
 
-func makePipe() (nw *Network, dconn, aconn net.Conn, stop func(), err error) {
+func makePipe(host1, host2 string) (nw *Network, dconn, aconn net.Conn, stop func(), err error) {
 	orig := timeNow
 	nw = New()
-	earth, mars := nw.Host("earth"), nw.Host("mars")
-	lr, err := earth.Listen("earth:80")
+	h1, h2 := nw.Host(host1), nw.Host(host2)
+	lr, err := h1.Listen(":80")
 	if err != nil {
 		return
 	}
 	defer lr.Close()
-	dconn, aconn, err = dial(lr, mars)
+	dconn, aconn, err = dial(lr, h2)
 	stop = func() {
 		timeNow = orig
 		_ = dconn.Close()
