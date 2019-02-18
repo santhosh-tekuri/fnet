@@ -15,6 +15,7 @@
 package fnet
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -142,10 +143,12 @@ type Host struct {
 func (h *Host) Listen(address string) (net.Listener, error) {
 	host, port, err := lookupHostPort(address)
 	if err != nil {
-		return nil, err
+		return nil, &net.OpError{Op: "listen", Net: "fnet", Err: err}
 	}
 	if host != "" && host != h.Name {
-		return nil, fmt.Errorf("fnet.Listen: cannot listen on diffent host %s", host)
+		return nil, &net.OpError{
+			Op: "listen", Net: "fnet", Addr: addr{host, port},
+			Err: errors.New("cannot bind on different host")}
 	}
 
 	h.mu.Lock()
@@ -153,7 +156,9 @@ func (h *Host) Listen(address string) (net.Listener, error) {
 
 	if port != 0 {
 		if _, used := h.lrs[port]; used {
-			return nil, fmt.Errorf("fnet.Listen: port %d is already bound on host %s", port, h.Name)
+			return nil, &net.OpError{
+				Op: "listen", Net: "fnet", Addr: addr{host, port},
+				Err: errors.New("port is in use")}
 		}
 	}
 
@@ -192,18 +197,24 @@ func (h *Host) DialTimeout(address string, timeout time.Duration) (net.Conn, err
 	remote, ok := h.net.hosts[rhost]
 	h.net.mu.RUnlock()
 	if !ok {
-		return nil, fmt.Errorf("fnet.Dial: %s connection refused", address)
+		return nil, &net.OpError{
+			Op: "dial", Net: "fnet", Addr: addr{rhost, rport},
+			Err: errors.New("connection refused")}
 	}
 
 	if !h.net.Firewall().Allow(h.Name, rhost) {
-		return nil, fmt.Errorf("fnet.Dial: %s connection refused", address)
+		return nil, &net.OpError{
+			Op: "dial", Net: "fnet", Addr: addr{rhost, rport},
+			Err: errors.New("connection refused")}
 	}
 
 	remote.mu.RLock()
 	lr, ok := remote.lrs[rport]
 	remote.mu.RUnlock()
 	if !ok {
-		return nil, fmt.Errorf("fnet.Dial: %s connection refused", address)
+		return nil, &net.OpError{
+			Op: "dial", Net: "fnet", Addr: addr{rhost, rport},
+			Err: errors.New("connection refused")}
 	}
 
 	netConn, err := net.DialTimeout("tcp", lr.netL.Addr().String(), timeout)
