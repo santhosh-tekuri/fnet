@@ -27,6 +27,28 @@ import (
 	"time"
 )
 
+func TestErrors(t *testing.T) {
+	nw := New()
+	earth, _ := nw.Host("earth"), nw.Host("mars")
+
+	nw.SetBandwidth("pluto", "earth", NoLimit)
+
+	_, err := earth.Listen("venus")
+	ensureOpError(t, err, "listen", nil)
+
+	_, err = earth.Listen("mars:80")
+	ensureOpError(t, err, "listen", nil)
+
+	_, err = earth.Dial("venus")
+	ensureOpError(t, err, "dial", nil)
+
+	_, err = earth.Dial("pluto:80")
+	ensureOpError(t, err, "dial", nil)
+
+	_, err = earth.Dial("mars:80")
+	ensureOpError(t, err, "dial", nil)
+}
+
 func TestCommunication(t *testing.T) {
 	nw := New()
 	earth, mars := nw.Host("earth"), nw.Host("mars")

@@ -45,14 +45,14 @@ func TestConnCloseError(t *testing.T) {
 	_ = c1.Close()
 
 	_, err = c1.Read(nil)
-	ensureOpError(t, err, io.ErrClosedPipe)
+	ensureOpError(t, err, "read", io.ErrClosedPipe)
 
 	_, err = c1.Write(nil)
-	ensureOpError(t, err, io.ErrClosedPipe)
+	ensureOpError(t, err, "write", io.ErrClosedPipe)
 
-	ensureOpError(t, c1.SetDeadline(time.Time{}), io.ErrClosedPipe)
-	ensureOpError(t, c1.SetReadDeadline(time.Time{}), io.ErrClosedPipe)
-	ensureOpError(t, c1.SetWriteDeadline(time.Time{}), io.ErrClosedPipe)
+	ensureOpError(t, c1.SetDeadline(time.Time{}), "set", io.ErrClosedPipe)
+	ensureOpError(t, c1.SetReadDeadline(time.Time{}), "set", io.ErrClosedPipe)
+	ensureOpError(t, c1.SetWriteDeadline(time.Time{}), "set", io.ErrClosedPipe)
 
 	if _, err := c2.Read(make([]byte, 1)); err != io.EOF {
 		t.Errorf("c2.Read() = %v, want io.EOF", err)
@@ -143,7 +143,7 @@ func TestConn_ReadWrite_interruptSleepByClose(t *testing.T) {
 		defer wg.Done()
 		<-ch
 		n, err := dconn.Read(make([]byte, 1024))
-		ensureOpError(t, err, io.ErrClosedPipe)
+		ensureOpError(t, err, "read", io.ErrClosedPipe)
 		if n != 0 {
 			t.Fatalf("Read: got %d, want 0", n)
 		}
@@ -152,7 +152,7 @@ func TestConn_ReadWrite_interruptSleepByClose(t *testing.T) {
 		defer wg.Done()
 		<-ch
 		n, err := dconn.Write(make([]byte, 1024))
-		ensureOpError(t, err, io.ErrClosedPipe)
+		ensureOpError(t, err, "write", io.ErrClosedPipe)
 		if n != 0 {
 			t.Fatalf("Write: got %d, want 0", n)
 		}
@@ -292,23 +292,26 @@ func ensureTimeout(t *testing.T, err error) {
 	t.Helper()
 	if nerr, ok := err.(net.Error); ok {
 		if !nerr.Timeout() {
-			t.Errorf("err.Timeout() = false, want true")
+			t.Fatalf("err.Timeout() = false, want true")
 		}
 	} else {
-		t.Errorf("got %T, want net.Error", err)
+		t.Fatalf("got %T, want net.Error", err)
 	}
 }
 
-func ensureOpError(t *testing.T, err, aerr error) {
+func ensureOpError(t *testing.T, err error, op string, aerr error) {
 	t.Helper()
 	if nerr, ok := err.(*net.OpError); ok {
 		if nerr.Net != "fnet" {
-			t.Errorf("OpError.Net: got %s, want fnet", nerr.Net)
+			t.Fatalf("OpError.Net: got %s, want fnet", nerr.Net)
 		}
-		if nerr.Err != aerr {
-			t.Errorf("OpError.Err: got %v, want %v", nerr.Err, aerr)
+		if nerr.Op != op {
+			t.Fatalf("OpError.Op: got %s, want %s", nerr.Op, op)
+		}
+		if aerr != nil && nerr.Err != aerr {
+			t.Fatalf("OpError.Err: got %v, want %v", nerr.Err, aerr)
 		}
 	} else {
-		t.Errorf("got %T, want *net.OpError", err)
+		t.Fatalf("got %T, want *net.OpError", err)
 	}
 }

@@ -190,7 +190,7 @@ func (h *Host) Dial(address string) (net.Conn, error) {
 func (h *Host) DialTimeout(address string, timeout time.Duration) (net.Conn, error) {
 	rhost, rport, err := lookupHostPort(address)
 	if err != nil {
-		return nil, err
+		return nil, &net.OpError{Op: "dial", Net: "fnet", Err: err}
 	}
 
 	h.net.mu.RLock()
