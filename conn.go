@@ -59,7 +59,7 @@ func (c *conn) Read(b []byte) (n int, err error) {
 	}
 
 	for {
-		d, max, deadline := rlimit.request(false, int64(len(b)), c.rd.get())
+		d, max, deadline := rlimit.request(int64(len(b)), c.rd.get())
 		if d > 0 {
 			c.sleep(d, c.rd)
 			if c.isClosed() {
@@ -75,7 +75,6 @@ func (c *conn) Read(b []byte) (n int, err error) {
 		err = c.netConn.SetReadDeadline(deadline)
 		if err == nil {
 			n, err = c.netConn.Read(b[:int(max)])
-			rlimit.taken(int64(n))
 		}
 
 		if err, ok := err.(net.Error); ok && err.Timeout() {
@@ -112,7 +111,7 @@ func (c *conn) Write(b []byte) (n int, err error) {
 
 	wrote := 0
 	for {
-		d, max, deadline := wlimit.request(true, int64(len(b)-n), c.wd.get())
+		d, max, deadline := wlimit.request(int64(len(b)-n), c.wd.get())
 		if d > 0 {
 			c.sleep(d, c.wd)
 			if c.isClosed() {

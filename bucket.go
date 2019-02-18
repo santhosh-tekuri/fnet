@@ -103,20 +103,12 @@ func (b *bucket) remove(n int64) {
 	}
 }
 
-func (b *bucket) taken(n int64) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.update(timeNow())
-	b.remove(n)
-}
-
 // request n tokens with given user deadline
 // returns:
 //      - duration to sleep. if >0 sleep and do request again
 //      - if zero tokens, return timeout to user
 //      - use the tokens with the new deadline returned
-//      - in case take==false, report how many has been taken by calling bucket.taken method
-func (b *bucket) request(take bool, n int64, deadline time.Time) (time.Duration, int64, time.Time) {
+func (b *bucket) request(n int64, deadline time.Time) (time.Duration, int64, time.Time) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -130,9 +122,7 @@ func (b *bucket) request(take bool, n int64, deadline time.Time) (time.Duration,
 	if n == 0 { // time to deadline is too small to get any tokens
 		return deadline.Sub(now), 0, deadline // sleep till deadline
 	}
-	if take {
-		b.remove(n)
-	}
+	b.remove(n)
 	return 0, n, now.Add(b.durationFor(n))
 }
 

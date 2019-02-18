@@ -126,7 +126,7 @@ func TestBucket_request_staleDeadline(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			sleep, n, _ := test.b.request(true, 10, deadline)
+			sleep, n, _ := test.b.request(10, deadline)
 			if sleep > 0 {
 				t.Fatalf("sleep: got %v, want <=0", sleep)
 			}
