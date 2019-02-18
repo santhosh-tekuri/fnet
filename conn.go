@@ -79,10 +79,7 @@ func (c *conn) Read(b []byte) (n int, err error) {
 		}
 
 		if err, ok := err.(net.Error); ok && err.Timeout() {
-			if n == 0 {
-				continue
-			}
-			err = nil
+			continue
 		}
 		c.sleep(time.Until(deadline), c.rd)
 		return n, c.maskError("read", err)
