@@ -60,8 +60,12 @@ func (c *conn) Read(b []byte) (n int, err error) {
 
 	for {
 		d, max, deadline := rlimit.request(false, int64(len(b)), c.rd.get())
-		if err := c.sleep(d, c.rd); err != nil {
-			return 0, c.opError("read", err)
+		if d > 0 {
+			c.sleep(d, c.rd)
+			if c.isClosed() {
+				return 0, c.opError("read", io.ErrClosedPipe)
+			}
+			continue
 		}
 		if max <= 0 {
 			return 0, c.opError("read", timeoutError{})
@@ -112,8 +116,12 @@ func (c *conn) Write(b []byte) (n int, err error) {
 	wrote := 0
 	for {
 		d, max, deadline := wlimit.request(true, int64(len(b)-n), c.wd.get())
-		if err := c.sleep(d, c.wd); err != nil {
-			return 0, c.opError("write", err)
+		if d > 0 {
+			c.sleep(d, c.wd)
+			if c.isClosed() {
+				return n, c.opError("read", io.ErrClosedPipe)
+			}
+			continue
 		}
 		if max <= 0 {
 			return n, c.opError("write", timeoutError{})

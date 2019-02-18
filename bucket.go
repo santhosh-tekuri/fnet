@@ -112,7 +112,7 @@ func (b *bucket) taken(n int64) {
 
 // request n tokens with given user deadline
 // returns:
-//      - amount of duration to sleep before doing any action
+//      - duration to sleep. if >0 sleep and do request again
 //      - if zero tokens, return timeout to user
 //      - use the tokens with the new deadline returned
 //      - in case take==false, report how many has been taken by calling bucket.taken method
@@ -122,17 +122,19 @@ func (b *bucket) request(take bool, n int64, deadline time.Time) (time.Duration,
 
 	now := timeNow()
 	b.update(now)
-	sleep, timeout := b.waitTime(now, deadline)
-	if timeout {
+	sleep, _ := b.waitTime(now, deadline)
+	if sleep > 0 {
 		return sleep, 0, deadline
 	}
-	now = b.time
 
 	n = min(n, b.maxTokensFor(deadline))
+	if n == 0 {
+		return deadline.Sub(now), 0, deadline
+	}
 	if take {
 		b.remove(n)
 	}
-	return sleep, n, now.Add(b.durationFor(n))
+	return 0, n, now.Add(b.durationFor(n))
 }
 
 func min(a, b int64) int64 {

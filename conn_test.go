@@ -68,7 +68,7 @@ func TestConn_ReadWrite_interruptSleepByDeadline(t *testing.T) {
 	}
 	nw.SetBandwidth("earth", "mars", Bandwidth(1024))
 	timeNow = func() time.Time {
-		return now
+		return time.Now()
 	}
 
 	var wg sync.WaitGroup
@@ -118,7 +118,7 @@ func TestConn_ReadWrite_interruptSleepByClose(t *testing.T) {
 	}
 	nw.SetBandwidth("earth", "mars", Bandwidth(1024))
 	timeNow = func() time.Time {
-		return now
+		return time.Now()
 	}
 
 	var wg sync.WaitGroup
@@ -204,6 +204,30 @@ func TestConn_SleepAndTimeout(t *testing.T) {
 			t.Fatalf("wait: got %f, want >=2", wait)
 		}
 	}()
+}
+
+// tests that, any netConn timeouts are retried until
+// user's deadline is reached
+func TestConn_RetryNetConnRetry(t *testing.T) {
+	nw, dconn, _, stop, err := makePipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+
+	nw.SetBandwidth("earth", "mars", Bandwidth(1024))
+	deadline := time.Now().Add(3 * time.Second)
+	if err = dconn.SetReadDeadline(deadline); err != nil {
+		t.Fatal(err)
+	}
+	n, err := dconn.Read(make([]byte, 10))
+	ensureTimeout(t, err)
+	if now := time.Now(); now.Before(deadline) {
+		t.Fatalf("read timedout %s before deadline", deadline.Sub(now))
+	}
+	if n != 0 {
+		t.Fatalf("read: got %d, want 0", n)
+	}
 }
 
 func makePipe() (nw *Network, dconn, aconn net.Conn, stop func(), err error) {
