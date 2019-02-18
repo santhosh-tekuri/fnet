@@ -302,8 +302,11 @@ func ensureTimeout(t *testing.T, err error) {
 func ensureOpError(t *testing.T, err, aerr error) {
 	t.Helper()
 	if nerr, ok := err.(*net.OpError); ok {
+		if nerr.Net != "fnet" {
+			t.Errorf("OpError.Net: got %s, want fnet", nerr.Net)
+		}
 		if nerr.Err != aerr {
-			t.Errorf("got %v, want %v", nerr.Err, aerr)
+			t.Errorf("OpError.Err: got %v, want %v", nerr.Err, aerr)
 		}
 	} else {
 		t.Errorf("got %T, want *net.OpError", err)
