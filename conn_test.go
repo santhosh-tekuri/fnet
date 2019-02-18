@@ -222,14 +222,16 @@ func TestConn_RetryNetConnRetry(t *testing.T) {
 	defer stop()
 
 	// make netConn write timout
-	for b := make([]byte, 1024); ; {
-		if err := dconn.SetWriteDeadline(time.Now().Add(1 * time.Second)); err != nil {
-			t.Fatal(err)
-		}
-		_, err := dconn.Write(b)
-		if err != nil {
-			ensureTimeout(t, err)
-			break
+	for _, size := range []int{1024, 10} {
+		for b := make([]byte, size); ; {
+			if err := dconn.SetWriteDeadline(time.Now().Add(1 * time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			_, err := dconn.Write(b)
+			if err != nil {
+				ensureTimeout(t, err)
+				break
+			}
 		}
 	}
 
