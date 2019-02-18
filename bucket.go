@@ -87,11 +87,11 @@ func (b *bucket) update(now time.Time) {
 	b.time = now
 }
 
-func (b *bucket) waitTime(now time.Time, deadline time.Time) (sleep time.Duration, timeout bool) {
+func (b *bucket) waitTime(now time.Time, deadline time.Time) time.Duration {
 	if deadline.IsZero() || deadline.After(b.time) {
-		return b.time.Sub(now), false
+		return b.time.Sub(now)
 	}
-	return deadline.Sub(now), true
+	return deadline.Sub(now)
 }
 
 func (b *bucket) remove(n int64) {
@@ -122,14 +122,13 @@ func (b *bucket) request(take bool, n int64, deadline time.Time) (time.Duration,
 
 	now := timeNow()
 	b.update(now)
-	sleep, _ := b.waitTime(now, deadline)
-	if sleep > 0 {
-		return sleep, 0, deadline
+	if wt := b.waitTime(now, deadline); wt > 0 {
+		return wt, 0, deadline // sleep till you catch up b.time/deadline whichever is smaller
 	}
 
 	n = min(n, b.maxTokensFor(deadline))
-	if n == 0 {
-		return deadline.Sub(now), 0, deadline
+	if n == 0 { // time to deadline is too small to get any tokens
+		return deadline.Sub(now), 0, deadline // sleep till deadline
 	}
 	if take {
 		b.remove(n)

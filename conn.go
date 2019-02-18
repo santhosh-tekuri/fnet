@@ -84,7 +84,7 @@ func (c *conn) Read(b []byte) (n int, err error) {
 			}
 			err = nil
 		}
-		_ = c.sleep(time.Until(deadline), c.rd)
+		c.sleep(time.Until(deadline), c.rd)
 		return n, c.maskError("read", err)
 	}
 }
@@ -140,7 +140,7 @@ func (c *conn) Write(b []byte) (n int, err error) {
 		if err == nil && n < len(b) {
 			continue
 		}
-		_ = c.sleep(time.Until(deadline), c.wd)
+		c.sleep(time.Until(deadline), c.wd)
 		return n, c.maskError("write", err)
 	}
 }
@@ -218,22 +218,13 @@ func (c *conn) opError(op string, err error) error {
 	return &net.OpError{Op: op, Net: "fnet", Source: c.local, Addr: c.remote, Err: err}
 }
 
-// sleeps for the given duration. if deadline or close, happends
-// it wakes up and returns appropriate error if applicable, else
-// continues sleeping
-func (c *conn) sleep(dur time.Duration, d *deadline) error {
-	sleep := time.After(dur)
-	for {
-		select {
-		case <-sleep:
-			return nil
-		case <-c.closeDone:
-			return io.ErrClosedPipe
-		case <-d.wait():
-			if d.isTimeout() {
-				return timeoutError{}
-			}
-		}
+// sleeps for the given duration. if deadline is changed/reached or
+// connection is closed, it wakes up and returns immediately
+func (c *conn) sleep(dur time.Duration, d *deadline) {
+	select {
+	case <-time.After(dur):
+	case <-c.closeDone:
+	case <-d.wait():
 	}
 }
 
@@ -315,15 +306,4 @@ func (d *deadline) wait() <-chan struct{} {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.cancel
-}
-
-func (d *deadline) isTimeout() bool {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	select {
-	case <-d.cancel:
-		return true
-	default:
-		return false
-	}
 }
