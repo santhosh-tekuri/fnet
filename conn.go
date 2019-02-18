@@ -36,7 +36,7 @@ type conn struct {
 
 func (c *conn) Read(b []byte) (n int, err error) {
 	if c.isClosed() {
-		return 0, io.ErrClosedPipe
+		return 0, c.opError("read", io.ErrClosedPipe)
 	}
 	if !c.net.Firewall().Allow(c.local.host, c.remote.host) {
 		return 0, c.opError("read", syscall.EPIPE)
@@ -49,7 +49,9 @@ func (c *conn) Read(b []byte) (n int, err error) {
 
 	rlimit := c.net.getLimits(c.local.host, c.remote.host)[0]
 	if rlimit == nil {
-		err = c.netConn.SetReadDeadline(c.rd.get())
+		rd := c.rd.get()
+		c.rd.setNetconn(rd)
+		err = c.netConn.SetReadDeadline(rd)
 		if err == nil {
 			n, err = c.netConn.Read(b)
 		}
@@ -65,6 +67,7 @@ func (c *conn) Read(b []byte) (n int, err error) {
 			return 0, c.opError("read", timeoutError{})
 		}
 
+		c.rd.setNetconn(deadline)
 		err = c.netConn.SetReadDeadline(deadline)
 		if err == nil {
 			n, err = c.netConn.Read(b[:int(max)])
@@ -84,7 +87,7 @@ func (c *conn) Read(b []byte) (n int, err error) {
 
 func (c *conn) Write(b []byte) (n int, err error) {
 	if c.isClosed() {
-		return 0, io.ErrClosedPipe
+		return 0, c.opError("write", io.ErrClosedPipe)
 	}
 	if !c.net.Firewall().Allow(c.local.host, c.remote.host) {
 		return 0, c.opError("write", syscall.EPIPE)
@@ -97,7 +100,9 @@ func (c *conn) Write(b []byte) (n int, err error) {
 
 	wlimit := c.net.getLimits(c.local.host, c.remote.host)[1]
 	if wlimit == nil {
-		err = c.netConn.SetWriteDeadline(c.wd.get())
+		wd := c.wd.get()
+		c.wd.setNetconn(wd)
+		err = c.netConn.SetWriteDeadline(wd)
 		if err == nil {
 			n, err = c.netConn.Write(b)
 		}
@@ -114,6 +119,7 @@ func (c *conn) Write(b []byte) (n int, err error) {
 			return n, c.opError("write", timeoutError{})
 		}
 
+		c.wd.setNetconn(deadline)
 		err = c.netConn.SetWriteDeadline(deadline)
 		if err == nil {
 			wrote, err = c.netConn.Write(b[n : n+int(max)])
@@ -132,36 +138,38 @@ func (c *conn) Write(b []byte) (n int, err error) {
 }
 
 func (c *conn) SetDeadline(t time.Time) error {
-	if c.isClosed() {
-		return io.ErrClosedPipe
+	err := c.SetReadDeadline(t)
+	if err == nil {
+		err = c.SetWriteDeadline(t)
 	}
-	if c.local.host == c.remote.host {
-		return c.maskError("set", c.netConn.SetDeadline(t))
-	}
-	c.rd.set(t)
-	c.wd.set(t)
-	return nil
+	return err
 }
 
 func (c *conn) SetReadDeadline(t time.Time) error {
 	if c.isClosed() {
-		return io.ErrClosedPipe
+		return c.opError("set", io.ErrClosedPipe)
 	}
 	if c.local.host == c.remote.host {
 		return c.maskError("set", c.netConn.SetReadDeadline(t))
 	}
-	c.rd.set(t)
+	if c.rd.set(t) {
+		c.rd.setNetconn(t)
+		return c.maskError("set", c.netConn.SetReadDeadline(t))
+	}
 	return nil
 }
 
 func (c *conn) SetWriteDeadline(t time.Time) error {
 	if c.isClosed() {
-		return io.ErrClosedPipe
+		return c.opError("set", io.ErrClosedPipe)
 	}
 	if c.local.host == c.remote.host {
 		return c.maskError("set", c.netConn.SetWriteDeadline(t))
 	}
-	c.wd.set(t)
+	if c.wd.set(t) {
+		c.wd.setNetconn(t)
+		return c.maskError("set", c.netConn.SetWriteDeadline(t))
+	}
 	return nil
 }
 
@@ -224,10 +232,11 @@ func (c *conn) sleep(dur time.Duration, d *deadline) error {
 // --------------------------------------------------
 
 type deadline struct {
-	mu     sync.RWMutex
-	time   time.Time
-	timer  *time.Timer
-	cancel chan struct{}
+	mu      sync.RWMutex
+	user    time.Time // deadline set by user
+	netconn time.Time // deadline set on netconn
+	timer   *time.Timer
+	cancel  chan struct{}
 }
 
 func makeDeadline() *deadline {
@@ -239,14 +248,22 @@ func makeDeadline() *deadline {
 func (d *deadline) get() time.Time {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	return d.time
+	return d.user
 }
 
-func (d *deadline) set(t time.Time) {
+func (d *deadline) setNetconn(t time.Time) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.netconn = t
+}
+
+// returns true if user given deadline is netConn's deadline
+func (d *deadline) set(t time.Time) (reduced bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	d.time = t
+	d.user = t
+	reduced = !t.IsZero() && (d.netconn.IsZero() || t.Before(d.netconn))
 	if d.timer != nil && !d.timer.Stop() {
 		<-d.cancel // Wait for the timer callback to finish and close cancel
 	}
@@ -283,6 +300,7 @@ func (d *deadline) set(t time.Time) {
 	if !closed {
 		close(d.cancel)
 	}
+	return
 }
 
 func (d *deadline) wait() <-chan struct{} {

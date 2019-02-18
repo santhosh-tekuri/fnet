@@ -20,7 +20,27 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"golang.org/x/net/nettest"
 )
+
+func TestConn_Basic(t *testing.T) {
+	nw := New()
+	earth, mars := nw.Host("earth"), nw.Host("mars")
+	lr := listen(t, earth, 80)
+
+	nettest.TestConn(t, func() (c1, c2 net.Conn, stop func(), err error) {
+		c1, c2, err = dial(lr, mars)
+		if err != nil {
+			return
+		}
+		stop = func() {
+			_ = c1.Close()
+			_ = c2.Close()
+		}
+		return
+	})
+}
 
 func TestConnCloseError(t *testing.T) {
 	nw := New()
@@ -33,15 +53,14 @@ func TestConnCloseError(t *testing.T) {
 
 	_ = c1.Close()
 
-	if _, err := c1.Read(nil); err != io.ErrClosedPipe {
-		t.Errorf("c1.Read() = %v, want io.ErrClosedPipe", err)
-	}
-	if _, err := c1.Write(nil); err != io.ErrClosedPipe {
-		t.Errorf("c1.Write() = %v, want io.ErrClosedPipe", err)
-	}
-	if err := c1.SetDeadline(time.Time{}); err != io.ErrClosedPipe {
-		t.Errorf("c1.SetDeadline() = %v, want io.ErrClosedPipe", err)
-	}
+	_, err = c1.Read(nil)
+	ensureOpError(t, err, io.ErrClosedPipe)
+
+	_, err = c1.Write(nil)
+	ensureOpError(t, err, io.ErrClosedPipe)
+
+	ensureOpError(t, c1.SetDeadline(time.Time{}), io.ErrClosedPipe)
+
 	if _, err := c2.Read(make([]byte, 1)); err != io.EOF {
 		t.Errorf("c2.Read() = %v, want io.EOF", err)
 	}
@@ -145,7 +164,7 @@ func TestConn_ReadWrite_interruptSleepByClose(t *testing.T) {
 		defer wg.Done()
 		<-ch
 		n, err := dconn.Read(make([]byte, 1024))
-		ensureClosedPipe(t, err)
+		ensureOpError(t, err, io.ErrClosedPipe)
 		if n != 0 {
 			t.Fatalf("Read: got %d, want 0", n)
 		}
@@ -154,7 +173,7 @@ func TestConn_ReadWrite_interruptSleepByClose(t *testing.T) {
 		defer wg.Done()
 		<-ch
 		n, err := dconn.Write(make([]byte, 1024))
-		ensureClosedPipe(t, err)
+		ensureOpError(t, err, io.ErrClosedPipe)
 		if n != 0 {
 			t.Fatalf("Write: got %d, want 0", n)
 		}
@@ -230,11 +249,11 @@ func ensureTimeout(t *testing.T, err error) {
 	}
 }
 
-func ensureClosedPipe(t *testing.T, err error) {
+func ensureOpError(t *testing.T, err, aerr error) {
 	t.Helper()
 	if nerr, ok := err.(*net.OpError); ok {
-		if nerr.Err != io.ErrClosedPipe {
-			t.Errorf("got %v, want %v", nerr.Err, io.ErrClosedPipe)
+		if nerr.Err != aerr {
+			t.Errorf("got %v, want %v", nerr.Err, aerr)
 		}
 	} else {
 		t.Errorf("got %T, want *net.OpError", err)
