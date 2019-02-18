@@ -25,31 +25,18 @@ import (
 )
 
 func TestConn_Basic(t *testing.T) {
-	nw := New()
-	earth, mars := nw.Host("earth"), nw.Host("mars")
-	lr := listen(t, earth, 80)
-
 	nettest.TestConn(t, func() (c1, c2 net.Conn, stop func(), err error) {
-		c1, c2, err = dial(lr, mars)
-		if err != nil {
-			return
-		}
-		stop = func() {
-			_ = c1.Close()
-			_ = c2.Close()
-		}
+		_, c1, c2, stop, err = makePipe()
 		return
 	})
 }
 
 func TestConnCloseError(t *testing.T) {
-	nw := New()
-	earth, mars := nw.Host("earth"), nw.Host("mars")
-	lr := listen(t, earth, 80)
-	c1, c2, err := dial(lr, mars)
+	_, c1, c2, stop, err := makePipe()
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer stop()
 
 	_ = c1.Close()
 
@@ -69,18 +56,11 @@ func TestConnCloseError(t *testing.T) {
 // tests that setting deadline applies to
 // Read and Write operations which are sleeping.
 func TestConn_ReadWrite_interruptSleepByDeadline(t *testing.T) {
-	orig := timeNow
-	defer func() {
-		timeNow = orig
-	}()
-
-	nw := New()
-	earth, mars := nw.Host("earth"), nw.Host("mars")
-	lr := listen(t, earth, 80)
-	dconn, _, err := dial(lr, mars)
+	nw, dconn, _, stop, err := makePipe()
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer stop()
 
 	now := time.Now()
 	timeNow = func() time.Time {
@@ -126,18 +106,11 @@ func TestConn_ReadWrite_interruptSleepByDeadline(t *testing.T) {
 // tests that on closing any pending
 // Read and Write operations which are sleeping return closed pipe.
 func TestConn_ReadWrite_interruptSleepByClose(t *testing.T) {
-	orig := timeNow
-	defer func() {
-		timeNow = orig
-	}()
-
-	nw := New()
-	earth, mars := nw.Host("earth"), nw.Host("mars")
-	lr := listen(t, earth, 80)
-	dconn, _, err := dial(lr, mars)
+	nw, dconn, _, stop, err := makePipe()
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer stop()
 
 	now := time.Now()
 	timeNow = func() time.Time {
@@ -183,25 +156,20 @@ func TestConn_ReadWrite_interruptSleepByClose(t *testing.T) {
 // tests that if user's deadline is less than
 // bucket wait, it should sleep and timeout
 func TestConn_SleepAndTimeout(t *testing.T) {
-	orig := timeNow
-	defer func() {
-		timeNow = orig
-	}()
-
-	nw := New()
-	earth, mars := nw.Host("earth"), nw.Host("mars")
-	lr := listen(t, earth, 80)
-	dconn, _, err := dial(lr, mars)
+	nw, dconn, _, stop, err := makePipe()
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer stop()
 
 	now := time.Now()
 	timeNow = func() time.Time {
 		return now.Add(time.Hour)
 	}
 	nw.SetBandwidth("earth", "mars", Bandwidth(1024))
-	timeNow = orig
+	timeNow = func() time.Time {
+		return time.Now()
+	}
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -236,6 +204,24 @@ func TestConn_SleepAndTimeout(t *testing.T) {
 			t.Fatalf("wait: got %f, want >=2", wait)
 		}
 	}()
+}
+
+func makePipe() (nw *Network, dconn, aconn net.Conn, stop func(), err error) {
+	orig := timeNow
+	nw = New()
+	earth, mars := nw.Host("earth"), nw.Host("mars")
+	lr, err := earth.Listen("earth:80")
+	if err != nil {
+		return
+	}
+	defer lr.Close()
+	dconn, aconn, err = dial(lr, mars)
+	stop = func() {
+		timeNow = orig
+		_ = dconn.Close()
+		_ = aconn.Close()
+	}
+	return
 }
 
 func ensureTimeout(t *testing.T, err error) {
