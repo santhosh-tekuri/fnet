@@ -81,7 +81,7 @@ func (n *Network) SetFirewall(firewall Firewall) {
 // SetBandwidth enforces given bandwidth between the given two hosts.
 //
 // Bandwidth can be enforced between different hosts only.
-// this method does nothing, if hosts are same or any host
+// This method does nothing, if hosts are same or any host
 // does not exist.
 func (n *Network) SetBandwidth(host1, host2 string, bw Bandwidth) {
 	n.mu.RLock()

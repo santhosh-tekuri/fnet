@@ -57,9 +57,7 @@ func newBucket(bw Bandwidth) *bucket {
 }
 
 // how many max tokens can be taken now, for given deadline
-// returns:
-//    - max tokens you can get. <=burst
-//    - deadline for consuming them. <= given deadline
+// note that you can get atmost burst tokens
 func (b *bucket) maxTokensFor(deadline time.Time) int64 {
 	var max int64
 	switch {
@@ -105,9 +103,9 @@ func (b *bucket) remove(n int64) {
 
 // request n tokens with given user deadline
 // returns:
-//      - duration to sleep. if >0 sleep and do request again
-//      - if zero tokens, return timeout to user
-//      - use the tokens with the new deadline returned
+//   - duration to sleep. if >0 sleep and do request again
+//   - if zero tokens, return timeout to user
+//   - use the tokens with the new deadline returned
 func (b *bucket) request(n int64, deadline time.Time) (time.Duration, int64, time.Time) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
