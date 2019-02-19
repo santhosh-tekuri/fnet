@@ -219,7 +219,7 @@ func (h *Host) DialTimeout(address string, timeout time.Duration) (net.Conn, err
 
 	netConn, err := net.DialTimeout("tcp", lr.netL.Addr().String(), timeout)
 	if err != nil {
-		return nil, maskError(addr{h.Name, -1}, addr{rhost, rport}, err)
+		return nil, maskError(nil, addr{rhost, rport}, err)
 	}
 
 	_, netPort, _ := lookupHostPort(netConn.LocalAddr().String())
@@ -248,7 +248,7 @@ type listener struct {
 func (l *listener) Accept() (net.Conn, error) {
 	netConn, err := l.netL.Accept()
 	if err != nil {
-		return nil, maskError(l.addr, nil, err)
+		return nil, maskError(nil, l.addr, err)
 	}
 
 	var remote addr
@@ -295,14 +295,10 @@ func (l *listener) Addr() net.Addr {
 
 // if *net.OpError change its Op, Source and Addr values
 // to correspond fnet specific
-func maskError(local, remote net.Addr, err error) error {
+func maskError(source, addr net.Addr, err error) error {
 	if err, ok := err.(*net.OpError); ok {
 		err.Net = "fnet"
-		if err.Source == nil {
-			err.Addr = local
-		} else {
-			err.Source, err.Addr = local, remote
-		}
+		err.Source, err.Addr = source, addr
 	}
 	return err
 }
@@ -326,9 +322,6 @@ func (addr) Network() string {
 }
 
 func (a addr) String() string {
-	if a.port == -1 {
-		return a.host
-	}
 	return fmt.Sprintf("%s:%d", a.host, a.port)
 }
 

@@ -47,6 +47,18 @@ func TestErrors(t *testing.T) {
 
 	_, err = earth.Dial("mars:80")
 	ensureOpError(t, err, "dial", nil)
+
+	lr, err := earth.Listen(":80")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = lr.(*listener).netL.Close() // close underlaying listener
+
+	_, err = earth.Dial("earth:80")
+	ensureOpError(t, err, "dial", nil)
+
+	_, err = lr.Accept()
+	ensureOpError(t, err, "accept", nil)
 }
 
 func TestCommunication(t *testing.T) {

@@ -311,6 +311,12 @@ func ensureOpError(t *testing.T, err error, op string, aerr error) {
 		if aerr != nil && nerr.Err != aerr {
 			t.Fatalf("OpError.Err: got %v, want %v", nerr.Err, aerr)
 		}
+		if nerr.Source != nil && nerr.Source.Network() != "fnet" {
+			t.Fatalf("OpError.Source.Network: got %v, want fnet", nerr.Source.Network())
+		}
+		if nerr.Addr != nil && nerr.Addr.Network() != "fnet" {
+			t.Fatalf("OpError.Addr.Network: got %v, want fnet", nerr.Addr.Network())
+		}
 	} else {
 		t.Fatalf("got %T, want *net.OpError", err)
 	}
