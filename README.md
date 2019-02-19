@@ -27,42 +27,49 @@ type Server struct{
 }
 
 func (s *Server) launch() {
+    lr, err := net.Listen("tcp", s.HostPort)
     ...
-    lr, err := net.Listen("tcp", s.hostPort)
+}
+
+type Client struct{
+    HostPort string
+    ...
+}
+
+func (c *client) sendReq(req string) error {
+	conn, err := net.Dial("tcp", c.HostPort)
     ...
 }
 ~~~
 
-You have to mock `net.Listen` in your code. For this introduce transport interface as shown below:
+You have to mock `net.Listen`, `net.Dial` in your code. For this introduce transport interface as shown below:
 
 ~~~go
 package myapp
 
+type listenFn func(network, address string) (net.Listener, error)
+type dialFn func(network, address string) (net.Conn, error)
+
 type Server struct{
     HostPort string
-    trans    transport
+    listenFn listenFn // intialize to net.Listen
     ....
 }
 
 func (s *Server) launch() {
+    lr, err := s.listenFn("tcp", s.HostPort)
     ...
-    lr, err := s.trans.Listen("tcp", s.hostPort)
+}
+
+type Client struct{
+    HostPort string
+    dialFn   dialFn // initialize to net.Dial
     ...
 }
 
-type transport interface {
-    Listen(address string) (net.Listener, error)
-    Dial(address string) (net.Conn, error)
-}
-
-type tcpTransport struct{}
-
-func (t tcpTransport) Listen(address string) (net.Listener, error) {
-    return net.Listen("tcp", address)
-}
-
-func (t tcpTransport) Dial(address string, timeout time.Duration) (net.Conn, error) {
-    return net.Dial("tcp", address, timeout)
+func (c *client) sendReq(req string) error {
+     conn, err := c.dialFn("tcp", c.HostPort)
+     ...
 }
 
 // unit test code ---------------------
@@ -72,9 +79,9 @@ func TestServer(t *testing.T) {
     nw := fnet.New()
     earth, mars, venus := nw.Host("earth"), nw.Host("mars"), nw.Host("venus")
 
-    s1 := &Server{HostPort: "earth:80", transport: earth} // server1 running on earth
-    s2 := &Server{HostPort: "mars:80", transport: mars}   // server2 running on mars
-    c := &Client{Servers: []{"earth:80", "mars:80"}, transport: venus} // client is running on venus
+    s1 := &Server{HostPort: "earth:80", listenFn: earth.Listen} // server1 running on earth
+    s2 := &Server{HostPort: "mars:80", listenFn: mars.Listen}   // server2 running on mars
+    c := &Client{Servers: []{"earth:80", "mars:80"}, dialFn: venus.Dial} // client is running on venus
 
     // make s1 unreachable to client
     nw.SetFirewall(fnet.Split([]string{"earth"}, fnet.AllowAll))

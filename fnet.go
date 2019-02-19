@@ -31,7 +31,7 @@ func New() *Network {
 	}
 }
 
-// Network represents list of hosts on "fnet" network.
+// Network represents list of hosts on fake network.
 type Network struct {
 	mu       sync.RWMutex
 	hosts    map[string]*Host
@@ -139,16 +139,20 @@ type Host struct {
 	limits map[string][2]*bucket
 }
 
-// Listen implements net.Listen for "fnet" network.
-func (h *Host) Listen(address string) (net.Listener, error) {
+// Listen implements net.Listen.
+func (h *Host) Listen(network, address string) (net.Listener, error) {
 	host, port, err := lookupHostPort(address)
 	if err != nil {
-		return nil, &net.OpError{Op: "listen", Net: "fnet", Err: err}
+		return nil, &net.OpError{Op: "listen", Net: "tcp", Err: err}
 	}
 	if host != "" && host != h.Name {
 		return nil, &net.OpError{
-			Op: "listen", Net: "fnet", Addr: addr{host, port},
+			Op: "listen", Net: "tcp", Addr: addr{host, port},
 			Err: errors.New("cannot bind on different host")}
+	}
+
+	if network != "tcp" {
+		return nil, &net.OpError{Op: "listen", Net: network, Addr: addr{host, port}, Err: net.UnknownNetworkError(network)}
 	}
 
 	h.mu.Lock()
@@ -157,7 +161,7 @@ func (h *Host) Listen(address string) (net.Listener, error) {
 	if port != 0 {
 		if _, used := h.lrs[port]; used {
 			return nil, &net.OpError{
-				Op: "listen", Net: "fnet", Addr: addr{host, port},
+				Op: "listen", Net: "tcp", Addr: addr{host, port},
 				Err: errors.New("port is in use")}
 		}
 	}
@@ -181,16 +185,20 @@ func (h *Host) Listen(address string) (net.Listener, error) {
 	return lr, nil
 }
 
-// Dial implements net.Dial for "fnet" network.
-func (h *Host) Dial(address string) (net.Conn, error) {
-	return h.DialTimeout(address, 0)
+// Dial implements net.Dial.
+func (h *Host) Dial(network, address string) (net.Conn, error) {
+	return h.DialTimeout(network, address, 0)
 }
 
-// DialTimeout implements net.DialTimeout for "fnet" network.
-func (h *Host) DialTimeout(address string, timeout time.Duration) (net.Conn, error) {
+// DialTimeout implements net.DialTimeout.
+func (h *Host) DialTimeout(network, address string, timeout time.Duration) (net.Conn, error) {
 	rhost, rport, err := lookupHostPort(address)
 	if err != nil {
-		return nil, &net.OpError{Op: "dial", Net: "fnet", Err: err}
+		return nil, &net.OpError{Op: "dial", Net: "tcp", Err: err}
+	}
+
+	if network != "tcp" {
+		return nil, &net.OpError{Op: "listen", Net: network, Addr: addr{rhost, rport}, Err: net.UnknownNetworkError(network)}
 	}
 
 	h.net.mu.RLock()
@@ -198,13 +206,13 @@ func (h *Host) DialTimeout(address string, timeout time.Duration) (net.Conn, err
 	h.net.mu.RUnlock()
 	if !ok {
 		return nil, &net.OpError{
-			Op: "dial", Net: "fnet", Addr: addr{rhost, rport},
+			Op: "dial", Net: "tcp", Addr: addr{rhost, rport},
 			Err: errors.New("connection refused")}
 	}
 
 	if !h.net.Firewall().Allow(h.Name, rhost) {
 		return nil, &net.OpError{
-			Op: "dial", Net: "fnet", Addr: addr{rhost, rport},
+			Op: "dial", Net: "tcp", Addr: addr{rhost, rport},
 			Err: errors.New("connection refused")}
 	}
 
@@ -213,7 +221,7 @@ func (h *Host) DialTimeout(address string, timeout time.Duration) (net.Conn, err
 	remote.mu.RUnlock()
 	if !ok {
 		return nil, &net.OpError{
-			Op: "dial", Net: "fnet", Addr: addr{rhost, rport},
+			Op: "dial", Net: "tcp", Addr: addr{rhost, rport},
 			Err: errors.New("connection refused")}
 	}
 
@@ -297,7 +305,6 @@ func (l *listener) Addr() net.Addr {
 // to correspond fnet specific
 func maskError(source, addr net.Addr, err error) error {
 	if err, ok := err.(*net.OpError); ok {
-		err.Net = "fnet"
 		err.Source, err.Addr = source, addr
 	}
 	return err
@@ -318,7 +325,7 @@ type addr struct {
 }
 
 func (addr) Network() string {
-	return "fnet"
+	return "tcp"
 }
 
 func (a addr) String() string {

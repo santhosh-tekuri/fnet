@@ -274,7 +274,7 @@ func makePipe(host1, host2 string) (nw *Network, dconn, aconn net.Conn, stop fun
 	orig := timeNow
 	nw = New()
 	h1, h2 := nw.Host(host1), nw.Host(host2)
-	lr, err := h1.Listen(":80")
+	lr, err := h1.Listen("tcp", ":80")
 	if err != nil {
 		return
 	}
@@ -302,8 +302,8 @@ func ensureTimeout(t *testing.T, err error) {
 func ensureOpError(t *testing.T, err error, op string, aerr error) {
 	t.Helper()
 	if nerr, ok := err.(*net.OpError); ok {
-		if nerr.Net != "fnet" {
-			t.Fatalf("OpError.Net: got %s, want fnet", nerr.Net)
+		if nerr.Net != "tcp" {
+			t.Fatalf("OpError.Net: got %s, want tcp", nerr.Net)
 		}
 		if nerr.Op != op {
 			t.Fatalf("OpError.Op: got %s, want %s", nerr.Op, op)
@@ -311,11 +311,11 @@ func ensureOpError(t *testing.T, err error, op string, aerr error) {
 		if aerr != nil && nerr.Err != aerr {
 			t.Fatalf("OpError.Err: got %v, want %v", nerr.Err, aerr)
 		}
-		if nerr.Source != nil && nerr.Source.Network() != "fnet" {
-			t.Fatalf("OpError.Source.Network: got %v, want fnet", nerr.Source.Network())
+		if nerr.Source != nil && nerr.Source.Network() != "tcp" {
+			t.Fatalf("OpError.Source.Network: got %v, want tcp", nerr.Source.Network())
 		}
-		if nerr.Addr != nil && nerr.Addr.Network() != "fnet" {
-			t.Fatalf("OpError.Addr.Network: got %v, want fnet", nerr.Addr.Network())
+		if nerr.Addr != nil && nerr.Addr.Network() != "tcp" {
+			t.Fatalf("OpError.Addr.Network: got %v, want tcp", nerr.Addr.Network())
 		}
 	} else {
 		t.Fatalf("got %T, want *net.OpError", err)

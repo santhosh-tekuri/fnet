@@ -211,7 +211,7 @@ func (c *conn) maskError(op string, err error) error {
 }
 
 func (c *conn) opError(op string, err error) error {
-	return &net.OpError{Op: op, Net: "fnet", Source: c.local, Addr: c.remote, Err: err}
+	return &net.OpError{Op: op, Net: "tcp", Source: c.local, Addr: c.remote, Err: err}
 }
 
 // sleeps for the given duration. if deadline is changed/reached or

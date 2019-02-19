@@ -33,28 +33,28 @@ func TestErrors(t *testing.T) {
 
 	nw.SetBandwidth("pluto", "earth", NoLimit)
 
-	_, err := earth.Listen("venus")
+	_, err := earth.Listen("tcp", "venus")
 	ensureOpError(t, err, "listen", nil)
 
-	_, err = earth.Listen("mars:80")
+	_, err = earth.Listen("tcp", "mars:80")
 	ensureOpError(t, err, "listen", nil)
 
-	_, err = earth.Dial("venus")
+	_, err = earth.Dial("tcp", "venus")
 	ensureOpError(t, err, "dial", nil)
 
-	_, err = earth.Dial("pluto:80")
+	_, err = earth.Dial("tcp", "pluto:80")
 	ensureOpError(t, err, "dial", nil)
 
-	_, err = earth.Dial("mars:80")
+	_, err = earth.Dial("tcp", "mars:80")
 	ensureOpError(t, err, "dial", nil)
 
-	lr, err := earth.Listen(":80")
+	lr, err := earth.Listen("tcp", ":80")
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = lr.(*listener).netL.Close() // close underlaying listener
 
-	_, err = earth.Dial("earth:80")
+	_, err = earth.Dial("tcp", "earth:80")
 	ensureOpError(t, err, "dial", nil)
 
 	_, err = lr.Accept()
@@ -112,17 +112,17 @@ func TestCommunication(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	e90, err := earth.Listen(":90")
+	e90, err := earth.Listen("tcp", ":90")
 	if err != nil {
 		t.Fatal("listen :90 failed")
 	}
 	if e90.Addr().String() != "earth:90" {
 		t.Errorf("lr.Addr: got %s, want %s", e80.Addr(), "earth:90")
 	}
-	if _, err := earth.Listen("earth:90"); err == nil {
+	if _, err := earth.Listen("tcp", "earth:90"); err == nil {
 		t.Error("listening twice on same port")
 	}
-	e90.Close()
+	_ = e90.Close()
 	listen(t, earth, 90)
 
 }
@@ -130,7 +130,7 @@ func TestCommunication(t *testing.T) {
 func TestLookupPort(t *testing.T) {
 	nw := New()
 	earth := nw.Host("earth")
-	lr, err := earth.Listen("earth:http")
+	lr, err := earth.Listen("tcp", "earth:http")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestLookupPort(t *testing.T) {
 			t.Fatalf("addr: got %s, want %s", got, want)
 		}
 	}()
-	conn, err := earth.Dial("earth:http")
+	conn, err := earth.Dial("tcp", "earth:http")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestHostBandwidth(t *testing.T) {
 	writeRead := func(t *testing.T, start *sync.WaitGroup, wconn, rconn net.Conn, n int64) (w, r time.Duration) {
 		ch := make(chan time.Duration)
 		wb, rb := make([]byte, n), make([]byte, n)
-		rand.Read(wb)
+		_, _ = rand.Read(wb)
 		go func() {
 			start.Done()
 			start.Wait()
@@ -192,7 +192,7 @@ func TestHostBandwidth(t *testing.T) {
 		if wn != len(wb) {
 			t.Fatalf("got %d, want %d", wn, len(wb))
 		}
-		wconn.Close()
+		_ = wconn.Close()
 		readTook := <-ch
 
 		if !bytes.Equal(wb, rb) {
@@ -202,7 +202,7 @@ func TestHostBandwidth(t *testing.T) {
 		if rn != 0 || err != io.EOF {
 			t.Fatalf("got: %d %s, want 0 EOF", rn, err)
 		}
-		rconn.Close()
+		_ = rconn.Close()
 
 		return writeTook, readTook
 	}
@@ -257,7 +257,7 @@ func TestHostBandwidth(t *testing.T) {
 
 func listen(t *testing.T, host *Host, port int) net.Listener {
 	t.Helper()
-	lr, err := host.Listen(fmt.Sprintf("%s:%d", host.Name, port))
+	lr, err := host.Listen("tcp", fmt.Sprintf("%s:%d", host.Name, port))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +273,7 @@ func dial(lr net.Listener, host *Host) (dialed, accepted net.Conn, err error) {
 		accepted, err = conn, errr
 	}()
 
-	conn, errr := host.DialTimeout(lr.Addr().String(), 1*time.Second)
+	conn, errr := host.DialTimeout("tcp", lr.Addr().String(), 1*time.Second)
 	if errr != nil {
 		return nil, nil, errr
 	}

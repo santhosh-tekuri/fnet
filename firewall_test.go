@@ -39,16 +39,16 @@ func TestFirewall_AllowSelf(t *testing.T) {
 	if _, _, err := dial(mlr, mars); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := venus.Dial(mlr.Addr().String()); err == nil {
+	if _, err := venus.Dial("tcp", mlr.Addr().String()); err == nil {
 		t.Fatal()
 	}
-	if _, err := mars.Dial(vlr.Addr().String()); err == nil {
+	if _, err := mars.Dial("tcp", vlr.Addr().String()); err == nil {
 		t.Fatal()
 	}
-	if _, err := earth.Dial(mlr.Addr().String()); err == nil {
+	if _, err := earth.Dial("tcp", mlr.Addr().String()); err == nil {
 		t.Fatal("earth should not be able to dial mars")
 	}
-	if _, err := mars.Dial(elr.Addr().String()); err == nil {
+	if _, err := mars.Dial("tcp", elr.Addr().String()); err == nil {
 		t.Fatal("mars should not be able to dial earth")
 	}
 
@@ -85,10 +85,10 @@ func TestFirewall_Split(t *testing.T) {
 	if _, _, err := dial(vlr, mars); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := earth.Dial(mlr.Addr().String()); err == nil {
+	if _, err := earth.Dial("tcp", mlr.Addr().String()); err == nil {
 		t.Fatal("earth should not be able to dial mars")
 	}
-	if _, err := mars.Dial(elr.Addr().String()); err == nil {
+	if _, err := mars.Dial("tcp", elr.Addr().String()); err == nil {
 		t.Fatal("mars should not be able to dial earth")
 	}
 }
