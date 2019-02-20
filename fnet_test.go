@@ -56,9 +56,6 @@ func TestErrors(t *testing.T) {
 
 	_, err = earth.Dial("tcp", "earth:80")
 	ensureOpError(t, err, "dial", nil)
-
-	_, err = lr.Accept()
-	ensureOpError(t, err, "accept", nil)
 }
 
 func TestCommunication(t *testing.T) {

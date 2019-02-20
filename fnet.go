@@ -26,7 +26,6 @@ import (
 func New() *Network {
 	return &Network{
 		hosts:    make(map[string]*Host),
-		ports:    make(map[int]string),
 		firewall: AllowAll,
 	}
 }
@@ -35,7 +34,6 @@ func New() *Network {
 type Network struct {
 	mu       sync.RWMutex
 	hosts    map[string]*Host
-	ports    map[int]string // port -> hostname
 	firewall Firewall
 }
 
@@ -109,22 +107,6 @@ func (n *Network) getLimits(local, remote string) [2]*bucket {
 	return h.limits[remote]
 }
 
-func (n *Network) hostname(port int) string {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
-	return n.ports[port]
-}
-
-func (n *Network) setPort(port int, host string) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	if host == "" {
-		delete(n.ports, port)
-	} else {
-		n.ports[port] = host
-	}
-}
-
 // ---------------------------------------------
 
 // Host defines the network transport for
@@ -174,11 +156,11 @@ func (h *Host) Listen(network, address string) (net.Listener, error) {
 	if port == 0 {
 		port = netPort
 	}
-	h.net.setPort(netPort, h.Name)
 	lr := &listener{
-		host: h,
-		addr: addr{h.Name, port},
-		netL: netL,
+		host:     h,
+		addr:     addr{h.Name, port},
+		netL:     netL,
+		acceptCh: make(chan *conn),
 	}
 	h.lrs[port] = lr
 
@@ -225,20 +207,42 @@ func (h *Host) DialTimeout(network, address string, timeout time.Duration) (net.
 			Err: errors.New("connection refused")}
 	}
 
-	netConn, err := net.DialTimeout("tcp", lr.netL.Addr().String(), timeout)
-	if err != nil {
-		return nil, maskError(nil, addr{rhost, rport}, err)
+	lr.mu.Lock()
+	defer lr.mu.Unlock()
+	var aconn net.Conn
+	var aerr error
+	accepted := make(chan struct{})
+	go func() {
+		aconn, aerr = lr.netL.Accept()
+		close(accepted)
+	}()
+	dconn, derr := net.DialTimeout("tcp", lr.netL.Addr().String(), timeout)
+	if derr != nil {
+		return nil, maskError(nil, addr{rhost, rport}, derr)
 	}
-
-	_, netPort, _ := lookupHostPort(netConn.LocalAddr().String())
-	h.net.setPort(netPort, h.Name)
+	<-accepted
+	if aerr != nil {
+		_ = dconn.Close()
+		return nil, &net.OpError{
+			Op: "dial", Net: "tcp", Addr: addr{rhost, rport},
+			Err: errors.New("connection failed")}
+	}
+	_, netPort, _ := lookupHostPort(dconn.LocalAddr().String())
+	lr.acceptCh <- &conn{
+		net:       h.net,
+		local:     lr.addr,
+		remote:    addr{h.Name, netPort},
+		netConn:   aconn,
+		rd:        makeDeadline(),
+		wd:        makeDeadline(),
+		closeDone: make(chan struct{}),
+	}
 
 	return &conn{
 		net:       h.net,
 		local:     addr{h.Name, netPort},
 		remote:    addr{rhost, rport},
-		netConn:   netConn,
-		usedPort:  netPort,
+		netConn:   dconn,
 		rd:        makeDeadline(),
 		wd:        makeDeadline(),
 		closeDone: make(chan struct{}),
@@ -248,50 +252,28 @@ func (h *Host) DialTimeout(network, address string, timeout time.Duration) (net.
 // ---------------------------------------------
 
 type listener struct {
-	host *Host
-	addr addr
-	netL net.Listener
+	host     *Host
+	addr     addr
+	netL     net.Listener
+	mu       sync.Mutex
+	acceptCh chan *conn
 }
 
 func (l *listener) Accept() (net.Conn, error) {
-	netConn, err := l.netL.Accept()
-	if err != nil {
-		return nil, maskError(nil, l.addr, err)
+	netConn := <-l.acceptCh
+	if netConn == nil {
+		return nil, &net.OpError{
+			Op: "accept", Net: "tcp", Addr: l.addr,
+			Err: errors.New("listener closed")}
 	}
-
-	var remote addr
-	_, remote.port, _ = lookupHostPort(netConn.RemoteAddr().String())
-
-	for {
-		host := l.host.net.hostname(remote.port)
-		if host == "" {
-			time.Sleep(2 * time.Millisecond)
-			continue
-		}
-		remote.host = host
-		break
-	}
-
-	return &conn{
-		net:       l.host.net,
-		local:     l.addr,
-		remote:    remote,
-		netConn:   netConn,
-		usedPort:  remote.port,
-		rd:        makeDeadline(),
-		wd:        makeDeadline(),
-		closeDone: make(chan struct{}),
-	}, nil
+	return netConn, nil
 }
 
 func (l *listener) Close() error {
 	l.host.mu.Lock()
 	delete(l.host.lrs, l.addr.port)
+	close(l.acceptCh)
 	l.host.mu.Unlock()
-
-	_, port, _ := lookupHostPort(l.Addr().String())
-	l.host.net.setPort(port, "")
-
 	return l.netL.Close()
 }
 

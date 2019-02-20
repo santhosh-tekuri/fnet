@@ -23,12 +23,11 @@ import (
 )
 
 type conn struct {
-	net      *Network
-	local    addr
-	remote   addr
-	netConn  net.Conn
-	usedPort int // ephermal port used. to be released on close
-	rd, wd   *deadline
+	net     *Network
+	local   addr
+	remote  addr
+	netConn net.Conn
+	rd, wd  *deadline
 
 	closeOnce sync.Once
 	closeDone chan struct{}
@@ -188,7 +187,6 @@ func (c *conn) RemoteAddr() net.Addr {
 func (c *conn) Close() error {
 	c.closeOnce.Do(func() {
 		close(c.closeDone)
-		c.net.setPort(c.usedPort, "")
 	})
 	return c.maskError("close", c.netConn.Close())
 }
