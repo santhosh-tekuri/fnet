@@ -272,8 +272,11 @@ func (l *listener) Accept() (net.Conn, error) {
 func (l *listener) Close() error {
 	l.host.mu.Lock()
 	delete(l.host.lrs, l.addr.port)
-	close(l.acceptCh)
 	l.host.mu.Unlock()
+
+	l.mu.Lock()
+	close(l.acceptCh)
+	l.mu.Unlock()
 	return l.netL.Close()
 }
 
