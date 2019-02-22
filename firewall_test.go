@@ -16,8 +16,10 @@ package fnet
 
 import (
 	"net"
+	"sync"
 	"syscall"
 	"testing"
+	"time"
 )
 
 func TestFirewall_AllowSelf(t *testing.T) {
@@ -92,6 +94,52 @@ func TestFirewall_Split(t *testing.T) {
 		t.Fatal("mars should not be able to dial earth")
 	}
 }
+
+// ensures that any read/write that were in progress,
+// will result broken pipe on firewall restriction
+func TestFirewall_InflightRW(t *testing.T) {
+	nw, dconn, _, stop, err := makePipe("earth", "mars")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+
+	// make netConn write timout
+	makeWriteTimeout(t, dconn, 10)
+
+	var startWg sync.WaitGroup
+	startWg.Add(2)
+	errorsCh := make(chan error, 2)
+	go func() {
+		startWg.Done()
+		_, err := dconn.Read([]byte("hello"))
+		errorsCh <- err
+	}()
+	go func() {
+		startWg.Done()
+		_, err := dconn.Write(make([]byte, 10))
+		errorsCh <- err
+	}()
+
+	startWg.Wait()
+	time.Sleep(2 * time.Second)
+	nw.SetFirewall(AllowSelf)
+
+	select {
+	case err = <-errorsCh:
+		ensureOpError(t, err, "", syscall.EPIPE)
+	case <-time.After(5 * time.Second):
+		t.Fatal("none failed")
+	}
+	select {
+	case <-errorsCh:
+		ensureOpError(t, err, "", syscall.EPIPE)
+	case <-time.After(5 * time.Second):
+		t.Fatal("only one failed")
+	}
+}
+
+// --------------------------------------------------------------------------
 
 func ensureBroken(t *testing.T, conn net.Conn) {
 	t.Helper()

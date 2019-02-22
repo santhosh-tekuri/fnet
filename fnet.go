@@ -51,6 +51,7 @@ func (n *Network) Host(name string) *Host {
 		Name:   name,
 		lrs:    make(map[int]*listener),
 		limits: make(map[string][2]*bucket),
+		conns:  make(map[*conn]struct{}),
 	}
 	for _, h := range n.hosts {
 		host.limits[h.Name] = [2]*bucket{nil, nil}
@@ -74,6 +75,30 @@ func (n *Network) SetFirewall(firewall Firewall) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.firewall = firewall
+
+	var hosts []*Host
+	//n.mu.RLock()
+	for _, host := range n.hosts {
+		hosts = append(hosts, host)
+	}
+	//n.mu.RUnlock()
+
+	// break all existing connections
+	// which are not allowed by firewall
+	past := time.Now().Add(-time.Hour)
+	for _, h1 := range hosts {
+		for _, h2 := range hosts {
+			if h1 != h2 && !firewall.Allow(h1.Name, h2.Name) {
+				h1.mu.Lock()
+				for conn := range h1.conns {
+					if conn.remote.host == h2.Name {
+						_ = conn.netConn.SetDeadline(past)
+					}
+				}
+				h1.mu.Unlock()
+			}
+		}
+	}
 }
 
 // SetBandwidth enforces given bandwidth between the given two hosts.
@@ -119,6 +144,7 @@ type Host struct {
 	mu     sync.RWMutex
 	lrs    map[int]*listener
 	limits map[string][2]*bucket
+	conns  map[*conn]struct{}
 }
 
 // Listen implements net.Listen.
@@ -209,44 +235,53 @@ func (h *Host) DialTimeout(network, address string, timeout time.Duration) (net.
 
 	lr.mu.Lock()
 	defer lr.mu.Unlock()
-	var aconn net.Conn
+	var anetconn net.Conn
 	var aerr error
 	accepted := make(chan struct{})
 	go func() {
-		aconn, aerr = lr.netL.Accept()
+		anetconn, aerr = lr.netL.Accept()
 		close(accepted)
 	}()
-	dconn, derr := net.DialTimeout("tcp", lr.netL.Addr().String(), timeout)
+	dnetconn, derr := net.DialTimeout("tcp", lr.netL.Addr().String(), timeout)
 	if derr != nil {
 		return nil, maskError(nil, addr{rhost, rport}, derr)
 	}
 	<-accepted
 	if aerr != nil {
-		_ = dconn.Close()
+		_ = dnetconn.Close()
 		return nil, &net.OpError{
 			Op: "dial", Net: "tcp", Addr: addr{rhost, rport},
 			Err: errors.New("connection failed")}
 	}
-	_, netPort, _ := lookupHostPort(dconn.LocalAddr().String())
-	lr.acceptCh <- &conn{
+	_, netPort, _ := lookupHostPort(dnetconn.LocalAddr().String())
+	aconn := &conn{
 		net:       h.net,
 		local:     lr.addr,
 		remote:    addr{h.Name, netPort},
-		netConn:   aconn,
+		netConn:   anetconn,
 		rd:        makeDeadline(),
 		wd:        makeDeadline(),
 		closeDone: make(chan struct{}),
 	}
 
-	return &conn{
+	remote.mu.Lock()
+	remote.conns[aconn] = struct{}{}
+	remote.mu.Unlock()
+	lr.acceptCh <- aconn
+
+	dconn := &conn{
 		net:       h.net,
 		local:     addr{h.Name, netPort},
 		remote:    addr{rhost, rport},
-		netConn:   dconn,
+		netConn:   dnetconn,
 		rd:        makeDeadline(),
 		wd:        makeDeadline(),
 		closeDone: make(chan struct{}),
-	}, nil
+	}
+	h.mu.Lock()
+	h.conns[dconn] = struct{}{}
+	h.mu.Unlock()
+	return dconn, nil
 }
 
 // ---------------------------------------------

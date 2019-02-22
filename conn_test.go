@@ -222,18 +222,7 @@ func TestConn_RetryNetConnRetry(t *testing.T) {
 	defer stop()
 
 	// make netConn write timout
-	for _, size := range []int{1024, 10} {
-		for b := make([]byte, size); ; {
-			if err := dconn.SetWriteDeadline(time.Now().Add(1 * time.Second)); err != nil {
-				t.Fatal(err)
-			}
-			_, err := dconn.Write(b)
-			if err != nil {
-				ensureTimeout(t, err)
-				break
-			}
-		}
-	}
+	makeWriteTimeout(t, dconn, 10)
 
 	nw.SetBandwidth("earth", "mars", Bandwidth(1024))
 
@@ -305,7 +294,7 @@ func ensureOpError(t *testing.T, err error, op string, aerr error) {
 		if nerr.Net != "tcp" {
 			t.Fatalf("OpError.Net: got %s, want tcp", nerr.Net)
 		}
-		if nerr.Op != op {
+		if op != "" && nerr.Op != op {
 			t.Fatalf("OpError.Op: got %s, want %s", nerr.Op, op)
 		}
 		if aerr != nil && nerr.Err != aerr {
@@ -319,5 +308,28 @@ func ensureOpError(t *testing.T, err error, op string, aerr error) {
 		}
 	} else {
 		t.Fatalf("got %T, want *net.OpError", err)
+	}
+}
+
+// makes the given conn's write method time out, if buff is of
+// specified length.
+//
+// note: this function clears writeDeadline
+func makeWriteTimeout(t *testing.T, conn net.Conn, n int) {
+	t.Helper()
+	for _, size := range []int{1024, n} {
+		for b := make([]byte, size); ; {
+			if err := conn.SetWriteDeadline(time.Now().Add(1 * time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			_, err := conn.Write(b)
+			if err != nil {
+				ensureTimeout(t, err)
+				break
+			}
+		}
+	}
+	if err := conn.SetWriteDeadline(time.Time{}); err != nil {
+		t.Fatal(err)
 	}
 }

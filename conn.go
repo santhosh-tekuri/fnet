@@ -53,6 +53,13 @@ func (c *conn) Read(b []byte) (n int, err error) {
 		err = c.netConn.SetReadDeadline(rd)
 		if err == nil {
 			n, err = c.netConn.Read(b)
+
+			// on timeout err, if firewall restricted, return broken pipe
+			if err, ok := err.(net.Error); ok && err.Timeout() {
+				if !c.net.Firewall().Allow(c.local.host, c.remote.host) {
+					return n, c.opError("read", syscall.EPIPE)
+				}
+			}
 		}
 		return n, c.maskError("read", err)
 	}
@@ -77,6 +84,10 @@ func (c *conn) Read(b []byte) (n int, err error) {
 		}
 
 		if err, ok := err.(net.Error); ok && err.Timeout() {
+			// if firewall restricted, return broken pipe
+			if !c.net.Firewall().Allow(c.local.host, c.remote.host) {
+				return n, c.opError("write", syscall.EPIPE)
+			}
 			continue
 		}
 		c.sleep(time.Until(deadline), c.rd)
@@ -105,6 +116,13 @@ func (c *conn) Write(b []byte) (n int, err error) {
 		if err == nil {
 			n, err = c.netConn.Write(b)
 		}
+
+		// on timeout err, if firewall restricted, return broken pipe
+		if err, ok := err.(net.Error); ok && err.Timeout() {
+			if !c.net.Firewall().Allow(c.local.host, c.remote.host) {
+				return n, c.opError("write", syscall.EPIPE)
+			}
+		}
 		return n, c.maskError("write", err)
 	}
 
@@ -130,6 +148,10 @@ func (c *conn) Write(b []byte) (n int, err error) {
 		}
 
 		if err, ok := err.(net.Error); ok && err.Timeout() {
+			// if firewall restricted, return broken pipe
+			if !c.net.Firewall().Allow(c.local.host, c.remote.host) {
+				return n, c.opError("write", syscall.EPIPE)
+			}
 			continue
 		}
 		if err == nil && n < len(b) {
@@ -188,6 +210,10 @@ func (c *conn) Close() error {
 	c.closeOnce.Do(func() {
 		close(c.closeDone)
 	})
+	host := c.net.Host(c.local.host)
+	host.mu.Lock()
+	delete(host.conns, c)
+	host.mu.Unlock()
 	return c.maskError("close", c.netConn.Close())
 }
 
