@@ -222,7 +222,7 @@ func TestConn_RetryNetConnRetry(t *testing.T) {
 	defer stop()
 
 	// make netConn write timout
-	makeWriteTimeout(t, dconn, 10)
+	makeWriteTimeout(t, dconn, 1024)
 
 	nw.SetBandwidth("earth", "mars", Bandwidth(1024))
 
@@ -231,7 +231,7 @@ func TestConn_RetryNetConnRetry(t *testing.T) {
 		if err = dconn.SetReadDeadline(deadline); err != nil {
 			t.Fatal(err)
 		}
-		n, err := dconn.Read(make([]byte, 10))
+		n, err := dconn.Read(make([]byte, 1024))
 		ensureTimeout(t, err)
 		if now := time.Now(); now.Before(deadline) {
 			t.Fatalf("read timedout %s before deadline", deadline.Sub(now))
@@ -246,7 +246,7 @@ func TestConn_RetryNetConnRetry(t *testing.T) {
 		if err = dconn.SetWriteDeadline(deadline); err != nil {
 			t.Fatal(err)
 		}
-		n, err := dconn.Write(make([]byte, 10))
+		n, err := dconn.Write(make([]byte, 1024))
 		ensureTimeout(t, err)
 		if now := time.Now(); now.Before(deadline) {
 			t.Fatalf("write timedout %s before deadline", deadline.Sub(now))
