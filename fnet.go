@@ -287,11 +287,12 @@ func (h *Host) DialTimeout(network, address string, timeout time.Duration) (net.
 // ---------------------------------------------
 
 type listener struct {
-	host     *Host
-	addr     addr
-	netL     net.Listener
-	mu       sync.Mutex
-	acceptCh chan *conn
+	host      *Host
+	addr      addr
+	netL      net.Listener
+	mu        sync.Mutex
+	acceptCh  chan *conn
+	closeOnce sync.Once
 }
 
 func (l *listener) Accept() (net.Conn, error) {
@@ -310,7 +311,9 @@ func (l *listener) Close() error {
 	l.host.mu.Unlock()
 
 	l.mu.Lock()
-	close(l.acceptCh)
+	l.closeOnce.Do(func() {
+		close(l.acceptCh)
+	})
 	l.mu.Unlock()
 	return l.netL.Close()
 }

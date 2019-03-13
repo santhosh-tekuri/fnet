@@ -156,6 +156,36 @@ func TestLookupPort(t *testing.T) {
 	<-ch
 }
 
+// any blocking Accept calls should return error on listener.Close
+func TestListener_Accept(t *testing.T) {
+	network := New()
+	earth := network.Host("earth")
+	lr, err := earth.Listen("tcp", "earth:8888")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ch := make(chan struct{})
+	go func() {
+		ch <- struct{}{}
+		time.Sleep(1 * time.Second) // make sure listener.Accept() is called
+		lr.Close()
+	}()
+	<-ch
+	lr.Accept()
+}
+
+func TestListener_Close_twice(t *testing.T) {
+	network := New()
+	earth := network.Host("earth")
+	lr, err := earth.Listen("tcp", "earth:8888")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = lr.Close()
+	_ = lr.Close()
+}
+
 func TestHostBandwidth(t *testing.T) {
 	nw := New()
 	earth, mars := nw.Host("earth"), nw.Host("mars")
