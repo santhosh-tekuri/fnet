@@ -315,21 +315,24 @@ func ensureOpError(t *testing.T, err error, op string, aerr error) {
 // specified length.
 //
 // note: this function clears writeDeadline
-func makeWriteTimeout(t *testing.T, conn net.Conn, n int) {
+func makeWriteTimeout(t *testing.T, c net.Conn, n int) {
 	t.Helper()
+	if err := c.(*conn).netConn.(*net.TCPConn).SetWriteBuffer(1024); err!=nil {
+		t.Fatal(err)
+	}
 	for _, size := range []int{1024, n} {
 		for b := make([]byte, size); ; {
-			if err := conn.SetWriteDeadline(time.Now().Add(1 * time.Second)); err != nil {
+			if err := c.SetWriteDeadline(time.Now().Add(1 * time.Second)); err != nil {
 				t.Fatal(err)
 			}
-			_, err := conn.Write(b)
+			_, err := c.Write(b)
 			if err != nil {
 				ensureTimeout(t, err)
 				break
 			}
 		}
 	}
-	if err := conn.SetWriteDeadline(time.Time{}); err != nil {
+	if err := c.SetWriteDeadline(time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 }
