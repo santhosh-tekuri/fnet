@@ -15,6 +15,7 @@
 package fnet
 
 import (
+	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -246,6 +247,10 @@ func (c *conn) sleep(dur time.Duration, d *deadline) {
 	case <-c.closeDone:
 	case <-d.wait():
 	}
+}
+
+func (c *conn) String() string {
+	return fmt.Sprintf("*fnet.conn{%s->%s}", c.local, c.remote)
 }
 
 // --------------------------------------------------
