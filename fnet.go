@@ -70,6 +70,8 @@ func (n *Network) Firewall() Firewall {
 	return n.firewall
 }
 
+// todo: let broken connections remain broken
+
 // SetFirewall changes the current firewall.
 func (n *Network) SetFirewall(firewall Firewall) {
 	n.mu.Lock()
