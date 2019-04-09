@@ -189,6 +189,7 @@ func (h *Host) Listen(network, address string) (net.Listener, error) {
 		addr:     addr{h.Name, port},
 		netL:     netL,
 		dialerCh: make(chan addr),
+		closed:   make(chan struct{}),
 	}
 	h.lrs[port] = lr
 
@@ -242,21 +243,32 @@ func (h *Host) DialTimeout(network, address string, timeout time.Duration) (net.
 		return nil, maskError(nil, addr{rhost, rport}, derr)
 	}
 	_, netPort, _ := lookupHostPort(netConn.LocalAddr().String())
-	lr.dialerCh <- addr{h.Name, netPort}
 
-	dconn := &conn{
-		net:       h.net,
-		local:     addr{h.Name, netPort},
-		remote:    addr{rhost, rport},
-		netConn:   netConn,
-		rd:        makeDeadline(),
-		wd:        makeDeadline(),
-		closeDone: make(chan struct{}),
+	// note: it is noticed that net.Dial succeeds even though listener didn't accept it
+	// seems os has accepted it. meanwhile if listener is closed
+	// lr.dialerCh <- addr{h.Name, netPort} will be blocked forever. so we have to check
+	// if listener is closed here
+	select {
+	case <-lr.closed:
+		_ = netConn.Close()
+		return nil, &net.OpError{
+			Op: "dial", Net: "tcp", Addr: addr{rhost, rport},
+			Err: errors.New("connection refused")}
+	case lr.dialerCh <- addr{h.Name, netPort}:
+		dconn := &conn{
+			net:       h.net,
+			local:     addr{h.Name, netPort},
+			remote:    addr{rhost, rport},
+			netConn:   netConn,
+			rd:        makeDeadline(),
+			wd:        makeDeadline(),
+			closeDone: make(chan struct{}),
+		}
+		h.mu.Lock()
+		h.conns[dconn] = struct{}{}
+		h.mu.Unlock()
+		return dconn, nil
 	}
-	h.mu.Lock()
-	h.conns[dconn] = struct{}{}
-	h.mu.Unlock()
-	return dconn, nil
 }
 
 // ---------------------------------------------
@@ -267,6 +279,7 @@ type listener struct {
 	netL     net.Listener
 	dialMu   sync.Mutex // we want only one dial at a time, so that we can find which host dialed
 	dialerCh chan addr
+	closed   chan struct{}
 }
 
 func (l *listener) Accept() (net.Conn, error) {
@@ -274,33 +287,48 @@ func (l *listener) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, maskError(nil, l.addr, err)
 	}
-	dialer := <-l.dialerCh
-	_, rport, _ := lookupHostPort(netConn.RemoteAddr().String())
-	if rport != dialer.port {
-		panic(fmt.Sprintf("rport!=dialer.port rport=%d dialer.port=%d", rport, dialer.port))
-	}
+	// if listener is closed meanwhile, the dialer will not send anything
+	// on l.dialerCh
+	select {
+	case <-l.closed:
+		_ = netConn.Close()
+		return nil, &net.OpError{
+			Op: "accept", Net: "tcp", Addr: l.addr,
+			Err: errors.New("listener closed")}
+	case dialer := <-l.dialerCh:
+		_, rport, _ := lookupHostPort(netConn.RemoteAddr().String())
+		if rport != dialer.port {
+			panic(fmt.Sprintf("rport!=dialer.port rport=%d dialer.port=%d", rport, dialer.port))
+		}
 
-	aconn := &conn{
-		net:       l.host.net,
-		local:     l.addr,
-		remote:    dialer,
-		netConn:   netConn,
-		rd:        makeDeadline(),
-		wd:        makeDeadline(),
-		closeDone: make(chan struct{}),
-	}
-	l.host.mu.Lock()
-	l.host.conns[aconn] = struct{}{}
-	l.host.mu.Unlock()
+		aconn := &conn{
+			net:       l.host.net,
+			local:     l.addr,
+			remote:    dialer,
+			netConn:   netConn,
+			rd:        makeDeadline(),
+			wd:        makeDeadline(),
+			closeDone: make(chan struct{}),
+		}
+		l.host.mu.Lock()
+		l.host.conns[aconn] = struct{}{}
+		l.host.mu.Unlock()
 
-	return aconn, nil
+		return aconn, nil
+	}
 }
 
 func (l *listener) Close() error {
 	l.host.mu.Lock()
 	delete(l.host.lrs, l.addr.port)
 	l.host.mu.Unlock()
-	return l.netL.Close()
+	err := l.netL.Close()
+	select {
+	case <-l.closed:
+	default:
+		close(l.closed)
+	}
+	return err
 }
 
 func (l *listener) Addr() net.Addr {
